@@ -74,7 +74,7 @@ void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo);
  * @param chunk_size        number of bytes to be read from the chunk
  * @param worker_counters   array of counters to be overwritten with the chunk's word counts
  */
-void processText(char* chunk, int chunk_size, struct PartialInfo *pInfo);
+void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo);
 
 /**
  * @brief Print the formatted word count results to standard output
@@ -312,7 +312,7 @@ void *worker(void *par) {
     pthread_exit(&statusWorkers[id]);
 }
 
-void processText(char* chunk, int chunk_size, struct PartialInfo *pInfo) {
+void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo) {
     unsigned char code[4] = {0, 0, 0, 0};                               // Utf-8 code of a symbol
     int code_size = 0;                                                  // Size of the code
     bool is_word = false;                                               // Checks if it is currently parsing a word
@@ -474,7 +474,6 @@ bool isalphanum(unsigned char* code) {
 }
 
 int checkCutOff(unsigned char* chunk) {
-    bool mock;
     int chunk_ptr = MAX_CHUNK_SIZE*1024;
     int code_size = 0;
     unsigned char symbol[4] = {0,0,0,0};
