@@ -20,7 +20,7 @@
  * @param current_file_id   Id of the file that the array is counting
  */
 struct PartialInfo {
-    int partial_counters[N_VOWELS];
+    int **partial_counters;
     int current_file_id;
 };
 
@@ -63,7 +63,7 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
  * @param pInfo             Struct that contains the application-defined ID of the file that the chunk is from 
  *                          and array with the counter increments, in the same order as the shared counters
  */
-void updateCounters(unsigned int worker_id, struct PartialInfo pInfo);
+void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo);
 
 /**
  * @brief Process the recently read chunk, updating the word counts.
@@ -103,7 +103,7 @@ static int n_files;
  */
 static int n_threads = 4;
 /** @brief Size of the chunks to be read by the workers, in kilobytes. Can be changed with command-line arguments */
-static int max_chunk_size = 4;
+static int max_chunk_size = MAX_CHUNK_SIZE;
 /** @brief Array holding the exit status of the worker threads */
 static int* statusWorkers;
 
@@ -119,7 +119,11 @@ char** file_names;
 /** @brief Counter of the number of threads that have finished processing the file chunks and updating the word counters */
 int finished_processing = 0;
 /** @brief  Index of the current file being processed */
-int file_id;
+int file_id = 0;
+/** @brief  */
+FILE *file_ptr;
+
+bool init_file = false;
 
 /**
  *  \brief Main thread.
@@ -227,22 +231,51 @@ void *worker(void *par) {
 
     struct PartialInfo pInfo;
     char *chunk;
-    int chunk_size = 2;
+    int chunk_size;
     
-    if ((chunk = malloc(max_chunk_size*1024 * sizeof(char))) == NULL) {
+    if ((chunk = malloc(max_chunk_size*1024 * sizeof(char))) == NULL ||
+        (pInfo.partial_counters = (int **)malloc(n_files * sizeof(int*))) == NULL) {
         perror("error on allocating space to both internal / external worker id arrays\n");
         statusWorkers[id] = EXIT_FAILURE;
         pthread_exit(&statusWorkers[id]);
     }
 
+    for (int i = 0; i < n_files; i++) {
+        if( (pInfo.partial_counters[i] = (int *) calloc(N_VOWELS, sizeof(int))) == NULL) {
+            perror("error on allocating space to both internal / external worker id arrays\n");
+            statusWorkers[id] = EXIT_FAILURE;
+            pthread_exit(&statusWorkers[id]);
+        }
+    }
+
     while (!work_done) {
         // Get chunks (critical region)
-        readChunk(id, chunk, &pInfo);
+        if(pthread_mutex_lock(&accessCR)) {
+            printf("ERROR\n");
+            perror ("error on entering monitor(CF)");
+            statusWorkers[id] = EXIT_FAILURE;
+            pthread_exit(&statusWorkers[id]);   
+        }
+        chunk_size = readChunk(id, chunk, &pInfo);
+    
+        if(pthread_mutex_unlock(&accessCR)) {
+            printf("ERROR\n");
+            perror ("error on exiting monitor(CF)");
+            statusWorkers[id] = EXIT_FAILURE;
+            pthread_exit(&statusWorkers[id]);    
+        }
         // Can be done in parallel
         processText(chunk, chunk_size, &pInfo);
     }
     // Update word counts (critical region)
-    updateCounters(id, pInfo);
+    updateCounters(id, &pInfo);
+
+    if(pthread_mutex_unlock(&accessCR)) {
+        printf("ERROR\n");
+        perror ("error on entering monitor(CF)");
+        statusWorkers[id] = EXIT_FAILURE;
+        pthread_exit(&statusWorkers[id]);    
+    }
 
     free(chunk);
 
@@ -253,43 +286,64 @@ void *worker(void *par) {
 void processText(char* chunk, int chunk_size, struct PartialInfo *pInfo) {
     printf("Process Text\n");
     for (int i = 0; i < N_VOWELS; i++) {
-        (*pInfo).partial_counters[i]++;
-        printf("%d ", (*pInfo).partial_counters[i]);
+        printf("%d ", (*pInfo).partial_counters[(*pInfo).current_file_id][i]);
     }
     printf("\n");
     
 }
 
-int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *pInfo) {
-    printf("Read Chunk %d\n", worker_id);
-    if(pthread_mutex_lock(&accessCR)) {
-        perror ("error on entering monitor(CF)");
-        statusWorkers[worker_id] = EXIT_FAILURE;
-        pthread_exit (&statusWorkers[worker_id]);   
+int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *pInfo) {    
+    if (!init_file) {
+        file_ptr = fopen(file_names[file_id], "r");
+        init_file = true;
     }
-    (*pInfo).current_file_id = 1;
-    work_done = true;
-    if(pthread_mutex_unlock(&accessCR)) {
-        perror ("error on entering monitor(CF)");
-        statusWorkers[worker_id] = EXIT_FAILURE;
-        pthread_exit (&statusWorkers[worker_id]);    
+    
+    // Check if file has ended, open a new file if not every file has been processed
+    if (file_done) {
+        printf("%d - File Done: %d\n", worker_id, file_id-1);
+        if (file_id == n_files) {
+            work_done = true;
+            return 0;
+        }
+        file_done = false;
     }
-    return 1;
+
+    (*pInfo).current_file_id = file_id;
+    printf("%d - Read file: %d\n", worker_id, pInfo->current_file_id);
+    int num = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, file_ptr);
+
+    
+
+    for (int i = 0; i < N_VOWELS; i++) {
+        (*pInfo).partial_counters[pInfo->current_file_id][i]++;
+    }
+
+    if (feof(file_ptr)) {
+        printf("%d - Finished file: %d\n", worker_id, file_id);
+        file_id++;
+        fclose(file_ptr);
+        file_ptr = fopen(file_names[file_id], "r");
+        file_done = true;
+    }
+
+    return num;
 }
 
-void updateCounters(unsigned int worker_id, struct PartialInfo pInfo) {
-    printf("Update Counters %d\n", worker_id);
+void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
     if(pthread_mutex_lock(&accessCR)) {
+        printf("ERROR\n");
         perror ("error on entering monitor(CF)");
         statusWorkers[worker_id] = EXIT_FAILURE;
         pthread_exit (&statusWorkers[worker_id]);   
     }
-    pInfo.current_file_id = 0;
-    for (int i = 0; i < N_VOWELS; i++) {
-        printf("%d ", pInfo.partial_counters[i]);
-        counters[pInfo.current_file_id][i] += pInfo.partial_counters[i];
+    printf("%d - Update Counters\n", worker_id);
+    for (int file = 0; file < n_files; file++) {
+        for (int i = 0; i < N_VOWELS; i++) {
+        // Increment global counter
+        counters[file][i] += pInfo->partial_counters[file][i];
     }
-    printf("\n");
+    }
+    
     if(pthread_mutex_unlock(&accessCR)) {
         perror ("error on entering monitor(CF)");
         statusWorkers[worker_id] = EXIT_FAILURE;
@@ -300,7 +354,7 @@ void updateCounters(unsigned int worker_id, struct PartialInfo pInfo) {
 void printResults(char** file_names) {
     printf("Init print");
     for (int i = 0; i < n_files; i++) {
-        printf("File name: %s", file_names[i]);
+        printf("File name: %s\n", file_names[i]);
         printf("Total number of words = %d\n", counters[i][0]);
         printf("N. of words with an\n");
         printf("      A\t    E\t    I\t    O\t    U\t    Y\n  ");
