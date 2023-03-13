@@ -12,7 +12,7 @@
 #define  MAX_CHUNK_SIZE_MIN  4
 #define  MAX_CHUNK_SIZE_MAX  8
 #define  N_VOWELS  7
-#define  MAX_CHUNK_SIZE  8
+#define  MAX_CHUNK_SIZE  2
 
 /**
  * @brief Struct to save the partial counters of a given file
@@ -90,6 +90,20 @@ void *worker(void *id);
  * @param argv 
  */
 void storeFiles(char** file_list);
+
+/**
+ * @brief Receives an utf-8 code and asserts if it is alphanumeric or '_'
+ * @param symbol 
+ * @return assertion
+ */
+bool isalphanum(unsigned char* code);
+
+/**
+ * @brief Checks if chunk of text is cutting off a word (or byte) and returns the number of bytes to rewind the file 
+ * @param chunk 
+ * @return number of bytes to rewind the file 
+ */
+int checkCutOff(unsigned char* chunk);
 
 // Global state variables
 /** @brief True when the main thread knows there are no more files to be read. Worker threads exit when this value becomes true */
@@ -230,7 +244,7 @@ void *worker(void *par) {
     printf("Init worker %d\n", id);
 
     struct PartialInfo pInfo;
-    char *chunk;
+    unsigned char *chunk;
     int chunk_size;
     
     if ((chunk = malloc(max_chunk_size*1024 * sizeof(char))) == NULL ||
@@ -310,9 +324,7 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
 
     (*pInfo).current_file_id = file_id;
     printf("%d - Read file: %d\n", worker_id, pInfo->current_file_id);
-    int num = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, file_ptr);
-
-    
+    int num = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, file_ptr);    
 
     for (int i = 0; i < N_VOWELS; i++) {
         (*pInfo).partial_counters[pInfo->current_file_id][i]++;
@@ -324,7 +336,16 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
         fclose(file_ptr);
         file_ptr = fopen(file_names[file_id], "r");
         file_done = true;
+        return num;
     }
+
+    int offset = checkCutOff(chunk);
+    // printf("Offset: %d\n", offset);
+    // for (int i = 0; i < MAX_CHUNK_SIZE*1024 - offset; i++) {
+    //     printf("%c", chunk[i]);
+    // }
+    // printf("\n");
+    fseek(file_ptr, -offset, SEEK_CUR);
 
     return num;
 }
@@ -369,4 +390,81 @@ static void print_usage (char *cmdName) {
     fprintf(stderr, "\nSynopsis: %s [OPTIONS] FILE...\n"
            "  OPTIONS:\n"
            "  -h      --- print this help\n", cmdName);
+}
+
+bool isalphanum(unsigned char* code) {
+    
+    return
+        (code[0] >= 0x30   && code[0] <= 0x39)   || 
+        (code[0] >= 0x41   && code[0] <= 0x5a)   ||
+        (code[0] == 0x5f)                     ||
+        (code[0] >= 0x61   && code[0] <= 0x7a)   ||
+        (code[0] >= 0x61   && code[0] <= 0x7a)   ||
+        (code[0] == 0xc3   && (
+            (code[1] >= 0x80 && code[1] <= 0x83) ||
+            (code[1] >= 0x87 && code[1] <= 0x8a) ||
+            (code[1] >= 0x8c && code[1] <= 0x8d) ||
+            (code[1] >= 0x92 && code[1] <= 0x95) ||
+            (code[1] >= 0x99 && code[1] <= 0x9a) ||
+            (code[1] >= 0xa0 && code[1] <= 0xa3) ||
+            (code[1] >= 0xa7 && code[1] <= 0xaa) ||
+            (code[1] >= 0xac && code[1] <= 0xad) ||
+            (code[1] >= 0xb2 && code[1] <= 0xb5) ||
+            (code[1] >= 0xb9 && code[1] <= 0xba) 
+        ));
+}
+
+int checkCutOff(unsigned char* chunk) {
+    bool mock;
+    int chunk_ptr = MAX_CHUNK_SIZE*1024;
+    int code_size = 0;
+    unsigned char symbol[4] = {0,0,0,0};
+    while (true) {
+        
+        // Last Byte is 1-byte Code
+        if (!(chunk[chunk_ptr] & 0x80)) {
+           code_size = 1;
+        }
+        // Last Byte is 1st byte of a 2-byte code
+        else if ((chunk[chunk_ptr] & 0xe0) == 0xc0) {
+            code_size = 2;
+        }
+        // Last Byte is 1st byte of a 3-byte code
+        else if ((chunk[chunk_ptr] & 0xf0) == 0xe0) {
+            code_size = 3;
+        }
+        // Last Byte is 1st byte of a 4-byte code
+        else if ((chunk[chunk_ptr] & 0xf8) == 0xf0) {
+            code_size = 4;
+        }
+        // Last Byte is the n-th byte of a 2 or more byte code
+        else if((chunk[chunk_ptr] & 0xC0) == 0x80) {
+            chunk_ptr--;
+            continue;
+        }
+        else {
+            fprintf(stderr, "Error on parsing file chunk\n");
+            return -1;
+        }
+
+        // Not enough bytes to form a complete code
+        if (MAX_CHUNK_SIZE*1024 - chunk_ptr < code_size) {
+            chunk_ptr--;
+            continue;
+        }
+
+        // Grab code
+        for (int i = 0; i < code_size; i++) {
+            symbol[i] = chunk[chunk_ptr+i];
+        }
+
+        // Check if its not alpha-numeric
+        if (!isalphanum(symbol)) {
+            return MAX_CHUNK_SIZE*1024 - chunk_ptr;
+        }
+        // Decrement chunk_ptr
+        chunk_ptr--;
+    }
+
+    return 0;
 }
