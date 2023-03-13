@@ -93,17 +93,31 @@ void storeFiles(char** file_list);
 
 /**
  * @brief Receives an utf-8 code and asserts if it is alphanumeric or '_'
- * @param symbol 
+ * @param symbol array of bytes corresponding to an utf-8 code
  * @return assertion
  */
 bool isalphanum(unsigned char* code);
 
 /**
  * @brief Checks if chunk of text is cutting off a word (or byte) and returns the number of bytes to rewind the file 
- * @param chunk 
+ * @param chunk array of bytes to be verified
  * @return number of bytes to rewind the file 
  */
 int checkCutOff(unsigned char* chunk);
+
+/**
+ * @brief Checks if utf-8 code corresponds with an apostrofe, or variants
+ * @param code array of bytes corresponding to an utf-8 code
+ * @return assertion
+ */
+bool isapostrofe(unsigned char* code);
+
+/**
+ * @brief Checks what vowel does the code correspond to and gives the correct index to update the counter
+ * @param code array of bytes corresponding to an utf-8 code
+ * @return counter index of the vowel
+ */
+int what_vowel(unsigned char* code);
 
 // Global state variables
 /** @brief True when the main thread knows there are no more files to be read. Worker threads exit when this value becomes true */
@@ -208,7 +222,7 @@ int main (int argc, char *argv[]) {
 
     for (i = 0; i < n_files; i++) {
         file_names[i] = argv[optind+i];
-		printf("File name: %s\n", file_names[i]);
+		// printf("File name: %s\n", file_names[i]);
         if ((counters[i] = calloc(N_VOWELS, sizeof(int))) == NULL) {
             fprintf(stderr, "Error on allocating space to both internal / external worker id arrays\n");
             exit(EXIT_FAILURE);
@@ -241,7 +255,7 @@ int main (int argc, char *argv[]) {
 int start_working = 0;
 void *worker(void *par) {
     unsigned int id = *((unsigned int *) par);
-    printf("Init worker %d\n", id);
+    // printf("Init worker %d\n", id);
 
     struct PartialInfo pInfo;
     unsigned char *chunk;
@@ -270,6 +284,7 @@ void *worker(void *par) {
             statusWorkers[id] = EXIT_FAILURE;
             pthread_exit(&statusWorkers[id]);   
         }
+        
         chunk_size = readChunk(id, chunk, &pInfo);
     
         if(pthread_mutex_unlock(&accessCR)) {
@@ -298,11 +313,69 @@ void *worker(void *par) {
 }
 
 void processText(char* chunk, int chunk_size, struct PartialInfo *pInfo) {
-    printf("Process Text\n");
-    for (int i = 0; i < N_VOWELS; i++) {
-        printf("%d ", (*pInfo).partial_counters[(*pInfo).current_file_id][i]);
+    unsigned char code[4] = {0, 0, 0, 0};                               // Utf-8 code of a symbol
+    int code_size = 0;                                                  // Size of the code
+    bool is_word = false;                                               // Checks if it is currently parsing a word
+    bool has_counted[6] = {false, false, false, false, false, false};   // Controls if given vowel has already been counted
+    int byte_ptr = 0;                                                   // Current byte being read in the chunk
+    while (byte_ptr < chunk_size) {    
+        code_size = 0;
+        // Byte is 1-byte Code    
+        if (!(chunk[byte_ptr] & 0x80)) {
+           code_size = 1;
+        }
+        // Byte is 1st byte of a 2-byte code
+        else if ((chunk[byte_ptr] & 0xe0) == 0xc0) {
+            code_size = 2;
+        }
+        // Byte is 1st byte of a 3-byte code
+        else if ((chunk[byte_ptr] & 0xf0) == 0xe0) {
+            code_size = 3;
+        }
+        // Byte is 1st byte of a 4-byte code
+        else if ((chunk[byte_ptr] & 0xf8) == 0xf0) {
+            code_size = 4;
+        }
+        else {
+            fprintf(stderr, "Error on processing file chunk\n");
+            return;
+        }
+
+        // Grab code
+        for (int i = 0; i < code_size; i++) {
+            code[i] = chunk[byte_ptr+i];
+        }
+        // Increment pointer
+        byte_ptr += code_size;
+
+        if (isalphanum(code)) {
+            // If previous state wasn't word, increment word counter
+            if (!is_word) {
+                pInfo->partial_counters[pInfo->current_file_id][0]++;
+            }
+            is_word = true;
+            // Check if code corresponds to a vowel
+            int vowel = what_vowel(code);
+
+            if (vowel < 0) {
+                continue;
+            }
+
+            // Increment vowel counter if it hasn't been counted
+            if (!has_counted[vowel]) {
+                has_counted[vowel] = true;
+                pInfo->partial_counters[pInfo->current_file_id][vowel]++;
+            }
+        }
+        else {
+            if (!isapostrofe(code)) {
+                is_word = false;
+                for (int i = 0; i < N_VOWELS-1; i++) {
+                    has_counted[i] = false;
+                }
+            }
+        }
     }
-    printf("\n");
     
 }
 
@@ -314,7 +387,6 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
     
     // Check if file has ended, open a new file if not every file has been processed
     if (file_done) {
-        printf("%d - File Done: %d\n", worker_id, file_id-1);
         if (file_id == n_files) {
             work_done = true;
             return 0;
@@ -323,15 +395,9 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
     }
 
     (*pInfo).current_file_id = file_id;
-    printf("%d - Read file: %d\n", worker_id, pInfo->current_file_id);
     int num = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, file_ptr);    
 
-    for (int i = 0; i < N_VOWELS; i++) {
-        (*pInfo).partial_counters[pInfo->current_file_id][i]++;
-    }
-
     if (feof(file_ptr)) {
-        printf("%d - Finished file: %d\n", worker_id, file_id);
         file_id++;
         fclose(file_ptr);
         file_ptr = fopen(file_names[file_id], "r");
@@ -340,14 +406,9 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
     }
 
     int offset = checkCutOff(chunk);
-    // printf("Offset: %d\n", offset);
-    // for (int i = 0; i < MAX_CHUNK_SIZE*1024 - offset; i++) {
-    //     printf("%c", chunk[i]);
-    // }
-    // printf("\n");
     fseek(file_ptr, -offset, SEEK_CUR);
 
-    return num;
+    return num - offset;
 }
 
 void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
@@ -357,12 +418,11 @@ void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
         statusWorkers[worker_id] = EXIT_FAILURE;
         pthread_exit (&statusWorkers[worker_id]);   
     }
-    printf("%d - Update Counters\n", worker_id);
     for (int file = 0; file < n_files; file++) {
         for (int i = 0; i < N_VOWELS; i++) {
         // Increment global counter
-        counters[file][i] += pInfo->partial_counters[file][i];
-    }
+            counters[file][i] += pInfo->partial_counters[file][i];
+        }
     }
     
     if(pthread_mutex_unlock(&accessCR)) {
@@ -373,7 +433,6 @@ void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
 }
 
 void printResults(char** file_names) {
-    printf("Init print");
     for (int i = 0; i < n_files; i++) {
         printf("File name: %s\n", file_names[i]);
         printf("Total number of words = %d\n", counters[i][0]);
@@ -467,4 +526,31 @@ int checkCutOff(unsigned char* chunk) {
     }
 
     return 0;
+}
+
+bool isapostrofe(unsigned char* code) {
+    return (code[0] == 0x27) || (code[0] == 0xe2 && code[1] == 0x80 && (code[2] == 0x98 || code[2] == 0x99));
+}
+
+int what_vowel(unsigned char* code) {
+    if ( code[0] == 0x41 || code[0] == 0x61 || (code[0] == 0xc3 && ((code[1] >= 0x80 && code[1] <= 0x83) || (code[1] >= 0xa0 && code[1] <= 0xa3)))) {
+        return 1;
+    }
+    if ( code[0] == 0x45 || code[0] == 0x65 || (code[0] == 0xc3 && ((code[1] >= 0x88 && code[1] <= 0x8a) || (code[1] >= 0xa8 && code[1] <= 0xaa)))) {
+        return 2;
+    }
+    if ( code[0] == 0x49 || code[0] == 0x69 || (code[0] == 0xc3 && ((code[1] >= 0x8c && code[1] <= 0x8d) || (code[1] >= 0xac && code[1] <= 0xad)))) {
+        return 3;
+    }
+    if ( code[0] == 0x4f || code[0] == 0x6f || (code[0] == 0xc3 && ((code[1] >= 0x92 && code[1] <= 0x95) || (code[1] >= 0xb2 && code[1] <= 0xb5)))) {
+        return 4;
+    }
+    if ( code[0] == 0x55 || code[0] == 0x75 || (code[0] == 0xc3 && ((code[1] >= 0x99 && code[1] <= 0x9a) || (code[1] >= 0xb9 && code[1] <= 0xba)))) {
+        return 5;
+    }
+    if ((code[0] == 0x59 || code[0] == 0x79)) {
+        return 6;
+    }
+
+    return -1;
 }
