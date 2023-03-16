@@ -31,10 +31,7 @@ struct PartialInfo {
  *
  *  \param cmdName string with the name of the command
  */
-static void print_usage (char *cmdName);
-
-// TODO: main should wait for each file's results, or only wait at the end for everything?
-// TODO: can we simplify and create/terminate threads at each processed file?
+static void printUsage (char *cmdName);
 
 /**
  * @brief Read a fixed-size chunk of text from the file being currently read.
@@ -117,7 +114,7 @@ bool isapostrofe(unsigned char* code);
  * @param code array of bytes corresponding to an utf-8 code
  * @return counter index of the vowel
  */
-int what_vowel(unsigned char* code);
+int whatVowel(unsigned char* code);
 
 // Global state variables
 /** @brief True when the main thread knows there are no more files to be read. Worker threads exit when this value becomes true */
@@ -133,7 +130,7 @@ static int n_threads = 4;
 /** @brief Size of the chunks to be read by the workers, in kilobytes. Can be changed with command-line arguments */
 static int max_chunk_size = MAX_CHUNK_SIZE;
 /** @brief Array holding the exit status of the worker threads */
-static int* statusWorkers;
+static int* status_workers;
 
 // State Control variables
 /** \brief Locking flag which warrants mutual exclusion inside the monitor */
@@ -169,23 +166,23 @@ int main (int argc, char *argv[]) {
     extern char* optarg;
     extern int optind;
 
-    while((opt = getopt(argc, argv, "t:s:h")) != -1) {
+    while((opt = getopt(argc, argv, "t:h")) != -1) {
         switch (opt) {
             case 't': /* number of threads to be created */
                 if (atoi(optarg) <= 0){ 
                     fprintf(stderr, "%s: non positive number\n", basename(argv[0]));
-                    print_usage(basename(argv[0]));
+                    printUsage(basename(argv[0]));
                     return EXIT_FAILURE;
                 }
                 n_threads = (int) atoi(optarg);
                 if (n_threads > MAX_THREADS){ 
                     fprintf(stderr, "%s: too many threads\n", basename(argv[0]));
-                    print_usage(basename(argv[0]));
+                    printUsage(basename(argv[0]));
                     return EXIT_FAILURE;
                 }
                 break;
             case 'h':
-                print_usage(basename(argv[0]));
+                printUsage(basename(argv[0]));
                 return EXIT_SUCCESS;
             case '?': /* invalid option */
                 fprintf (stderr, "%s: invalid option\n", basename(argv[0]));
@@ -209,7 +206,7 @@ int main (int argc, char *argv[]) {
 
     if ((t_worker_id = malloc(n_threads * sizeof(pthread_t))) == NULL       ||
         (worker_id = malloc(n_threads * sizeof(unsigned int))) == NULL      ||
-        (statusWorkers = malloc(n_threads * sizeof(unsigned int))) == NULL  ||
+        (status_workers = malloc(n_threads * sizeof(unsigned int))) == NULL  ||
         (file_names = malloc(n_files * sizeof(char*))) == NULL  ||
         (counters = (int **)malloc(n_files*sizeof(int*))) == NULL) {
         fprintf(stderr, "error on allocating space to both internal / external worker id arrays\n");
@@ -222,7 +219,6 @@ int main (int argc, char *argv[]) {
 
     for (i = 0; i < n_files; i++) {
         file_names[i] = argv[optind+i];
-		// printf("File name: %s\n", file_names[i]);
         if ((counters[i] = calloc(N_VOWELS, sizeof(int))) == NULL) {
             fprintf(stderr, "Error on allocating space to both internal / external worker id arrays\n");
             exit(EXIT_FAILURE);
@@ -248,6 +244,11 @@ int main (int argc, char *argv[]) {
     
     free(t_worker_id);
     free(worker_id);
+    free(status_workers);
+    free(file_names);
+    for (int i = 0; i < n_files; i++)
+        free(counters[i]);
+    free(counters);
 
     return EXIT_SUCCESS;
 }
@@ -255,24 +256,23 @@ int main (int argc, char *argv[]) {
 int start_working = 0;
 void *worker(void *par) {
     unsigned int id = *((unsigned int *) par);
-    // printf("Init worker %d\n", id);
 
     struct PartialInfo pInfo;
     unsigned char *chunk;
     int chunk_size;
     
     if ((chunk = malloc(max_chunk_size*1024 * sizeof(char))) == NULL ||
-        (pInfo.partial_counters = (int **)malloc(n_files * sizeof(int*))) == NULL) {
+        (pInfo.partial_counters = (int **) malloc(n_files * sizeof(int*))) == NULL) {
         perror("error on allocating space to both internal / external worker id arrays\n");
-        statusWorkers[id] = EXIT_FAILURE;
-        pthread_exit(&statusWorkers[id]);
+        status_workers[id] = EXIT_FAILURE;
+        pthread_exit(&status_workers[id]);
     }
 
     for (int i = 0; i < n_files; i++) {
-        if( (pInfo.partial_counters[i] = (int *) calloc(N_VOWELS, sizeof(int))) == NULL) {
+        if((pInfo.partial_counters[i] = (int *) calloc(N_VOWELS, sizeof(int))) == NULL) {
             perror("error on allocating space to both internal / external worker id arrays\n");
-            statusWorkers[id] = EXIT_FAILURE;
-            pthread_exit(&statusWorkers[id]);
+            status_workers[id] = EXIT_FAILURE;
+            pthread_exit(&status_workers[id]);
         }
     }
 
@@ -281,8 +281,8 @@ void *worker(void *par) {
         if(pthread_mutex_lock(&accessCR)) {
             printf("ERROR\n");
             perror ("error on entering monitor(CF)");
-            statusWorkers[id] = EXIT_FAILURE;
-            pthread_exit(&statusWorkers[id]);   
+            status_workers[id] = EXIT_FAILURE;
+            pthread_exit(&status_workers[id]);   
         }
         
         chunk_size = readChunk(id, chunk, &pInfo);
@@ -290,8 +290,8 @@ void *worker(void *par) {
         if(pthread_mutex_unlock(&accessCR)) {
             printf("ERROR\n");
             perror ("error on exiting monitor(CF)");
-            statusWorkers[id] = EXIT_FAILURE;
-            pthread_exit(&statusWorkers[id]);    
+            status_workers[id] = EXIT_FAILURE;
+            pthread_exit(&status_workers[id]);    
         }
         // Can be done in parallel
         processText(chunk, chunk_size, &pInfo);
@@ -302,14 +302,17 @@ void *worker(void *par) {
     if(pthread_mutex_unlock(&accessCR)) {
         printf("ERROR\n");
         perror ("error on entering monitor(CF)");
-        statusWorkers[id] = EXIT_FAILURE;
-        pthread_exit(&statusWorkers[id]);    
+        status_workers[id] = EXIT_FAILURE;
+        pthread_exit(&status_workers[id]);    
     }
 
     free(chunk);
+    for (int i = 0; i < n_files; i++)
+        free(pInfo.partial_counters[i]);
+    free(pInfo.partial_counters);
 
-    statusWorkers[id] = EXIT_SUCCESS;
-    pthread_exit(&statusWorkers[id]);
+    status_workers[id] = EXIT_SUCCESS;
+    pthread_exit(&status_workers[id]);
 }
 
 void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo) {
@@ -355,7 +358,7 @@ void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo
             }
             is_word = true;
             // Check if code corresponds to a vowel
-            int vowel = what_vowel(code);
+            int vowel = whatVowel(code);
 
             if (vowel < 0) {
                 continue;
@@ -379,18 +382,20 @@ void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo
     
 }
 
-int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *pInfo) {    
+int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *pInfo) {
     if (!init_file) {
         file_ptr = fopen(file_names[file_id], "r");
         init_file = true;
     }
     
     // Check if file has ended, open a new file if not every file has been processed
+    // TODO: we could consider file_done to be true at the very beginning, even if no file was actually done, and avoid using init_file
     if (file_done) {
         if (file_id == n_files) {
             work_done = true;
             return 0;
         }
+        file_ptr = fopen(file_names[file_id], "r");
         file_done = false;
     }
 
@@ -400,7 +405,6 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
     if (feof(file_ptr)) {
         file_id++;
         fclose(file_ptr);
-        file_ptr = fopen(file_names[file_id], "r");
         file_done = true;
         return num;
     }
@@ -412,23 +416,23 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
 }
 
 void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
-    if(pthread_mutex_lock(&accessCR)) {
+    if (pthread_mutex_lock(&accessCR)) {
         printf("ERROR\n");
         perror ("error on entering monitor(CF)");
-        statusWorkers[worker_id] = EXIT_FAILURE;
-        pthread_exit (&statusWorkers[worker_id]);   
+        status_workers[worker_id] = EXIT_FAILURE;
+        pthread_exit (&status_workers[worker_id]);   
     }
     for (int file = 0; file < n_files; file++) {
         for (int i = 0; i < N_VOWELS; i++) {
-        // Increment global counter
+            // Increment global counter
             counters[file][i] += pInfo->partial_counters[file][i];
         }
     }
     
     if(pthread_mutex_unlock(&accessCR)) {
         perror ("error on entering monitor(CF)");
-        statusWorkers[worker_id] = EXIT_FAILURE;
-        pthread_exit (&statusWorkers[worker_id]);    
+        status_workers[worker_id] = EXIT_FAILURE;
+        pthread_exit (&status_workers[worker_id]);    
     }
 }
 
@@ -445,7 +449,7 @@ void printResults(char** file_names) {
     }
 }
 
-static void print_usage (char *cmdName) {
+static void printUsage (char *cmdName) {
     fprintf(stderr, "\nSynopsis: %s [OPTIONS] FILE...\n"
            "  OPTIONS:\n"
            "  -h      --- print this help\n", cmdName);
@@ -474,7 +478,7 @@ bool isalphanum(unsigned char* code) {
 }
 
 int checkCutOff(unsigned char* chunk) {
-    int chunk_ptr = MAX_CHUNK_SIZE*1024;
+    int chunk_ptr = MAX_CHUNK_SIZE*1024 - 1;
     int code_size = 0;
     unsigned char symbol[4] = {0,0,0,0};
     while (true) {
@@ -531,7 +535,7 @@ bool isapostrofe(unsigned char* code) {
     return (code[0] == 0x27) || (code[0] == 0xe2 && code[1] == 0x80 && (code[2] == 0x98 || code[2] == 0x99));
 }
 
-int what_vowel(unsigned char* code) {
+int whatVowel(unsigned char* code) {
     if ( code[0] == 0x41 || code[0] == 0x61 || (code[0] == 0xc3 && ((code[1] >= 0x80 && code[1] <= 0x83) || (code[1] >= 0xa0 && code[1] <= 0xa3)))) {
         return 1;
     }
