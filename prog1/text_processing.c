@@ -362,8 +362,8 @@ void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo
             }
 
             // Increment vowel counter if it hasn't been counted
-            if (!has_counted[vowel]) {
-                has_counted[vowel] = true;
+            if (!has_counted[vowel-1]) {
+                has_counted[vowel-1] = true;
                 pInfo->partial_counters[pInfo->current_file_id][vowel]++;
             }
         }
@@ -454,21 +454,21 @@ static void print_usage (char *cmdName) {
 bool isalphanum(unsigned char* code) {
     
     return
-        (code[0] >= 0x30   && code[0] <= 0x39)   || 
-        (code[0] >= 0x41   && code[0] <= 0x5a)   ||
-        (code[0] == 0x5f)                     ||
-        (code[0] >= 0x61   && code[0] <= 0x7a)   ||
-        (code[0] >= 0x61   && code[0] <= 0x7a)   ||
-        (code[0] == 0xc3   && (
-            (code[1] >= 0x80 && code[1] <= 0x83) ||
-            (code[1] >= 0x87 && code[1] <= 0x8a) ||
-            (code[1] >= 0x8c && code[1] <= 0x8d) ||
-            (code[1] >= 0x92 && code[1] <= 0x95) ||
-            (code[1] >= 0x99 && code[1] <= 0x9a) ||
-            (code[1] >= 0xa0 && code[1] <= 0xa3) ||
-            (code[1] >= 0xa7 && code[1] <= 0xaa) ||
-            (code[1] >= 0xac && code[1] <= 0xad) ||
-            (code[1] >= 0xb2 && code[1] <= 0xb5) ||
+        (code[0] >= 0x30     && code[0] <= 0x39)    || 
+        (code[0] >= 0x41     && code[0] <= 0x5a)    ||
+        (code[0] == 0x5f)                           ||
+        (code[0] >= 0x61     && code[0] <= 0x7a)    ||
+        (code[0] >= 0x61     && code[0] <= 0x7a)    ||
+        (code[0] == 0xc3     && (
+            (code[1] >= 0x80 && code[1] <= 0x83)    ||
+            (code[1] >= 0x87 && code[1] <= 0x8a)    ||
+            (code[1] >= 0x8c && code[1] <= 0x8d)    ||
+            (code[1] >= 0x92 && code[1] <= 0x95)    ||
+            (code[1] >= 0x99 && code[1] <= 0x9a)    ||
+            (code[1] >= 0xa0 && code[1] <= 0xa3)    ||
+            (code[1] >= 0xa7 && code[1] <= 0xaa)    ||
+            (code[1] >= 0xac && code[1] <= 0xad)    ||
+            (code[1] >= 0xb2 && code[1] <= 0xb5)    ||
             (code[1] >= 0xb9 && code[1] <= 0xba) 
         ));
 }
