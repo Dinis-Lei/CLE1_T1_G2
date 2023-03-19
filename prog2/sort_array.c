@@ -72,7 +72,7 @@ int* numbers;
  */
 static int n_threads = 4;
 /** @brief Array holding the exit status of the worker threads */
-static int* statusWorkers;
+static int* status_workers;
 
 
 
@@ -120,7 +120,7 @@ int main (int argc, char *argv[]) {
 
     if ((t_worker_id = malloc(n_threads * sizeof(pthread_t))) == NULL
             || (worker_id = malloc(n_threads * sizeof(unsigned int))) == NULL
-            || (statusWorkers = malloc(n_threads * sizeof(unsigned int))) == NULL) {
+            || (status_workers = malloc(n_threads * sizeof(unsigned int))) == NULL) {
         fprintf(stderr, "error on allocating space to both internal / external worker id arrays\n");
         exit(EXIT_FAILURE);
     }
