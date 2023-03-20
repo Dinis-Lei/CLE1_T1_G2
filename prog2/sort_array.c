@@ -258,7 +258,8 @@ void *distributor(void *par) {
             pthread_cond_broadcast(&await_work_assignment);
         }
 
-        while (n_of_work_finished < n_workers) {
+        // The number of actually effective workers is equal to the stage (it isn't the n_of_work_requested)
+        while (n_of_work_finished < stage) {
             pthread_cond_wait(&workers_finished, &accessCR);
         }
         // Reset counter for the next iteration
@@ -273,10 +274,10 @@ void *distributor(void *par) {
     while (last_request == 0) {
         pthread_cond_wait(&await_work_request, &accessCR);
         last_request = distributeWork(0, 0);
-        pthread_cond_broadcast(&await_work_assignment);
     }
+    pthread_cond_broadcast(&await_work_assignment);
     pthread_mutex_unlock(&accessCR);
-
+    printf("Last REquest %d\n", last_request);
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
 }
