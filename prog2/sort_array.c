@@ -44,7 +44,7 @@ static void *distributor(void *par);
  * @param size size of the sequence
  * @param asc is ascending
  */
-void bitonicMerge(int* arr, int size, int start, bool asc);
+void bitonicMerge(int* arr, int size, bool asc);
 
 /**
  * @brief Sort a sequence of integers into a bitonic sequence
@@ -213,7 +213,7 @@ void *worker(void *par) {
 
         if (work.skip_sort) {
             printf("Merge\n");
-            bitonicMerge(work.array, work.array_size, 0, work.ascending); 
+            bitonicMerge(work.array, work.array_size, work.ascending); 
         }
         else {
             printf("Sort\n");
@@ -240,8 +240,7 @@ void swap(int* arr, int i, int j, bool asc) {
     }
 }
 
-// TODO: start not needed?
-void bitonicMerge(int* arr, int size, int start, bool asc) {
+void bitonicMerge(int* arr, int size, bool asc) {
     int v = size >> 1;
     int nL = 1;
     int n, u;
@@ -250,7 +249,7 @@ void bitonicMerge(int* arr, int size, int start, bool asc) {
         u = 0;
         while (n < nL) {
             for (int t = 0; t < v; t++) {
-                swap(arr, start+t+u, start+t+u+v, asc);    
+                swap(arr, t+u, t+u+v, asc);    
             }
             u += (v << 1);
             n += 1;
@@ -264,7 +263,7 @@ void bitonicSort(int* arr, int size, bool asc) {
     for (int j = 1; j <= log2(size); j++) {
         int N = pow(2, j);
         for (int i = 0; i < size; i += N) {
-            bitonicMerge(arr, N, i, asc);
+            bitonicMerge(arr + i, N, asc);
             asc = !asc;
         }
     }
