@@ -1,3 +1,17 @@
+/**
+ * @file sort_array.c (implementation file)
+ *
+ * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
+ *
+ * @brief Main file for Program 2.
+ * 
+ * Sort an array of integers stored in a file, whose path is provided as a command-line argument.
+ * The bitonic sorting algorithm is used, done using multithreading.
+ *
+ * @date March 2023
+ * 
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -8,133 +22,57 @@
 #include <math.h>
 #include <time.h>
 
-#define MAX_THREADS 16
+#include "sort_control.h"
+#include "constants.h"
+#include "sort_array.h"
 
 /**
- * @brief Structure holding the work details that the sorter thread should use when sorting at the current stage
- * 
- * @param array address of the array to sort
- * @param array_size number of elements to sort
- * @param ascending whether the sort should be in ascending or descending order
- * @param should_work whether the sorter thread should perform work or terminate at this stage
- * @param skip_sort whether the bitonic sorting should skip to the merge step
+ * @brief Print program usage
+ * @param cmdName program's name
  */
-struct SorterWork {
-    int* array;
-    int array_size;
-    bool ascending;
-    bool should_work;
-    bool skip_sort;
-};
-
-/**
- * @brief 
- * @param cmdName 
- */
-void printUsage (char *cmdName);
+static void printUsage (char *cmdName);
 
 /** @brief Worker threads' function, which will concurrently sort the assigned array of integers */
-void *worker(void *id);
+static void *worker(void *id);
 
 /** @brief Distributor thread's function, which will distribute work between the workers */
-void *distributor(void *par);
-
-/**
- * @brief Read and Store the contents of the file in Shared Memory
- * @param filename Name of the file to be read
- */
-void readStoreFile(char *filename);
+static void *distributor(void *par);
 
 /**
  * @brief Merge a bitonic sequence into an ascending or descending sequence 
- * @param arr Bitonic sequence
- * @param size Size of the sequence
- * @param asc Is ascending
+ * @param arr bitonic sequence
+ * @param size size of the sequence
+ * @param asc is ascending
  */
 void bitonicMerge(int* arr, int size, int start, bool asc);
 
 /**
  * @brief Sort a sequence of integers into a bitonic sequence
- * @param arr Bitonic sequence
- * @param size Size of the sequence
- * @param asc Isascending
+ * @param arr bitonic sequence
+ * @param size size of the sequence
+ * @param asc is ascending
  */
 void bitonicSort(int* arr, int size, bool asc);
 
 /**
  * @brief Swap elements in array in ascending or descending order
- * @param arr Array of elements to swap
- * @param i Index of first element
- * @param j Index of second element
- * @param asc Is ascending
+ * @param arr array of elements to swap
+ * @param i index of first element
+ * @param j index of second element
+ * @param asc is ascending
  */
 void swap(int* arr, int i, int j, bool asc);
-
-/**
- * @brief Fetches assigned work from the work_array
- * @param id worker thread's application id
- * @param work the work details to be fetched
- */
-void fetchWork(int id, struct SorterWork* work);
-
-/**
- * @brief Request work from the distributor
- * @param id application defined worker thread id
- */
-void requestWork(int id);
-
-/** @brief Signal that the sorting work has been finished. To be done by the worker threads */
-void reportWork();
-
-/**
- * @brief Checks which workers have requested work and assigns it to them
- * @param stage which stage of the sort it is
- * @param work_assigned number of workers with work already assigned
- * @return Number of work assigned
- */
-int distributeWork(int stage, int work_assigned);
-
-/**
- * @brief Validate that the integer array is sorted
- * @param val the array of integers to validate
- * @param N the size of the integer array
- */
-void validate(int* val, int N);
-
-/** @brief Array of work details for each of the sorter threads. Indexed by the threads' application id
- * (which should be an auto-incrementing counter) */
-struct SorterWork* work_array;
-/** @brief Array of work requests for each of the sorter threads. Indexed by the threads' application id
- * (which should be an auto-incrementing counter) */
-bool* request_array;
-
-// State Control variables
-/** @brief Workers' synchronization point for new work to be assigned */
-static pthread_cond_t await_work_assignment;
-/** @brief Distributor's synchronization point for when the workers request work */
-static pthread_cond_t await_work_request;
-/** @brief Distributor's synchronization point for when the workers have finished sorting at this stage */
-static pthread_cond_t workers_finished;
-
-/** \brief Locking flag which warrants mutual exclusion inside the monitor */
-static pthread_mutex_t accessCR = PTHREAD_MUTEX_INITIALIZER;
 
 // Global state variables
 /** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
  * and it's global as the distributor thread needs to be aware of how many there are */
-static int n_threads = 4;
+int n_threads = 4;
+/** @brief Exit status of the monitor initialization */
+int status_monitor_init;
 /** @brief Array holding the exit status of the worker threads */
-static int* status_workers;
-
-// Shared memory variables
-/** @brief Array of integers to sort */
-int* numbers;
-/** @brief Size of numbers array */
-int numbers_size;
-/** @brief Name of the file with the array to sort */
-char *filename; 
-/** @brief Counter of the number of workers that finished the current sorting stage, so that the distributor can wait for all workers before continuing */
-int n_of_work_finished = 0;
+int* status_workers;
+/** @brief Exit status of the distributor */
+int status_distributor;
 
 int main (int argc, char *argv[]) {
     int opt;
@@ -170,7 +108,9 @@ int main (int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    filename = argv[optind];
+    char* filename = argv[optind];
+
+    storeFilename(filename);
 
     pthread_t* t_worker_id;         // workers internal thread id array
     pthread_t t_distributor_id;     // distributor internal thread id
@@ -179,26 +119,23 @@ int main (int argc, char *argv[]) {
     int* pStatus;                   // pointer to execution status
     int i;                          // counting variable
 
-    /* initializing the application defined thread id arrays for the producers and the consumers and the random number
-     generator */
-
+    /**
+     * Allocate memory for and initialize arrays of:
+     * - the worker threads' internal IDs
+     * - the worker threads' application-defined IDs
+     * - the worker threads' status
+     * 
+     */
     if ((t_worker_id = malloc(n_threads * sizeof(pthread_t))) == NULL
             || (worker_id = malloc(n_threads * sizeof(unsigned int))) == NULL
-            || (status_workers = malloc(n_threads * sizeof(unsigned int))) == NULL
-            || (work_array = calloc(n_threads, sizeof(struct SorterWork))) == NULL
-            || (request_array = malloc(n_threads * sizeof(bool))) == NULL) {
+            || (status_workers = malloc(n_threads * sizeof(unsigned int))) == NULL) {
         fprintf(stderr, "error on allocating space to both internal / external worker id arrays\n");
         exit(EXIT_FAILURE);
     }
 
-    for (i = 0; i < n_threads; i++) {
+    for (i = 0; i < n_threads; i++)
         worker_id[i] = i;
-        request_array[i] = false;
-    }
-
-    pthread_cond_init(&await_work_assignment, NULL);
-    pthread_cond_init(&await_work_request, NULL);
-    pthread_cond_init(&workers_finished, NULL);
+    distributor_id = i;
 
     // Launch Workers and Distributor
     for (i = 0; i < n_threads; i++) {
@@ -224,7 +161,8 @@ int main (int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    validate(numbers, numbers_size);
+    if (!validateSort())
+        return EXIT_FAILURE;
 
     return EXIT_SUCCESS;
 }
@@ -232,52 +170,32 @@ int main (int argc, char *argv[]) {
 
 void *distributor(void *par) {
     unsigned int id = *((unsigned int *) par);
-    int n_workers = n_threads;
 
-    pthread_mutex_lock(&accessCR);
-    readStoreFile(filename);
-    pthread_mutex_unlock(&accessCR);
+    readIntegerFile();
+
+    struct SorterWork* work_to_distribute = malloc(n_threads * sizeof(struct SorterWork));
 
     for (int stage = n_threads; stage > 0; stage >>= 1) {
 
-        pthread_mutex_lock(&accessCR);
-
-        // The first iteration is done differently, since no workers are dispensed from work.
-        // In the following iterations, however, half of the workers will be dispensed from work,
+        // The first stage is done differently, since no workers are dispensed from work.
+        // In the following stages, however, half of the workers will be dispensed from work,
         // while the other half works as expected.
-        n_workers = (stage == n_threads) ? stage : stage << 1;
-        int n_of_work_requested = 0;
-        n_of_work_requested = distributeWork(stage, n_of_work_requested);
-        // TODO error handling
-        pthread_cond_broadcast(&await_work_assignment);
-        while (n_of_work_requested < n_workers) {
-            pthread_cond_wait(&await_work_request, &accessCR);
-            n_of_work_requested += distributeWork(stage, n_of_work_requested);
-            // TODO: C pthread uses Lampson & Redell right? Therefore we can't assume that after a signal the waiting
-            // thread will execute immediately, so we have to broadcast instead of 1 signal here
-            pthread_cond_broadcast(&await_work_assignment);
+        int n_workers = (stage == n_threads) ? stage : stage << 1;
+        for (int work_id = 0; work_id < n_workers; work_id++) {
+            work_to_distribute[work_id].should_work = work_id < stage;            
+            if (work_to_distribute[work_id].should_work) {                
+                defineIntegerSubsequence(stage, work_id, &work_to_distribute[work_id].array, &work_to_distribute[work_id].array_size);
+                work_to_distribute[work_id].ascending = (work_id % 2) == 0;
+                work_to_distribute[work_id].skip_sort = stage != n_threads;
+            }
         }
 
-        // The number of actually effective workers is equal to the stage (it isn't the n_of_work_requested)
-        while (n_of_work_finished < stage) {
-            pthread_cond_wait(&workers_finished, &accessCR);
-        }
-        // Reset counter for the next iteration
-        n_of_work_finished = 0;
+        distributeWork(work_to_distribute, n_workers);
+    }   
 
-        pthread_mutex_unlock(&accessCR);
-    }
+    work_to_distribute[0].should_work = false;
+    distributeWork(work_to_distribute, 1);
 
-    // Tell the remaining worker to terminate
-    pthread_mutex_lock(&accessCR);
-    int last_request = distributeWork(0, 0);
-    while (last_request == 0) {
-        pthread_cond_wait(&await_work_request, &accessCR);
-        last_request = distributeWork(0, 0);
-    }
-    pthread_cond_broadcast(&await_work_assignment);
-    pthread_mutex_unlock(&accessCR);
-    printf("Last REquest %d\n", last_request);
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
 }
@@ -288,7 +206,6 @@ void *worker(void *par) {
     struct SorterWork work;
     
     while (true) {
-        requestWork(id);
         fetchWork(id, &work);
         
         if (!work.should_work)
@@ -303,88 +220,11 @@ void *worker(void *par) {
             bitonicSort(work.array, work.array_size, work.ascending);
         }
         
-        
         reportWork();
     }
     printf("Exiting %d\n", id);
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
-}
-
-int distributeWork(int stage, int n_of_work_requested) {
-    int distributed_work = 0;
-    for (int i = 0; i < n_threads; i++) {
-        if (request_array[i]) {
-            struct SorterWork* work_to_distribute = &work_array[i];
-            
-            int work_id = n_of_work_requested + distributed_work;
-            work_to_distribute->should_work = work_id < stage;
-            
-            if (work_to_distribute->should_work) {
-                int block_size = numbers_size / stage;
-                work_to_distribute->array = numbers + work_id * block_size;
-                work_to_distribute->array_size = block_size;
-                work_to_distribute->ascending = (work_id % 2) == 0;
-                work_to_distribute->skip_sort = stage != n_threads;
-            }
-
-            distributed_work++;
-            request_array[i] = false;
-        }
-    }
-    return distributed_work;
-}
-
-void requestWork(int id) {
-    pthread_mutex_lock(&accessCR);
-    request_array[id] = true;
-    pthread_cond_signal(&await_work_request);
-    pthread_mutex_unlock(&accessCR);
-}
-
-void reportWork() {
-    pthread_mutex_lock(&accessCR);
-    n_of_work_finished++;
-    pthread_cond_signal(&workers_finished);
-    pthread_mutex_unlock(&accessCR);
-}
-
-void fetchWork(int id, struct SorterWork* work) {
-    pthread_mutex_lock(&accessCR);
-    // If the request hasn't been fulfilled yet
-    if (request_array[id]) {
-        pthread_cond_wait(&await_work_assignment, &accessCR);
-    }
-    *work = work_array[id];
-    pthread_mutex_unlock(&accessCR);
-}
-
-void readStoreFile(char *filename) {
-    FILE* file = fopen(filename, "rb");
-    if (file == NULL) {
-        fprintf(stderr, "Error opening file %s", filename);
-        return;
-    }
-
-    int res = fread(&numbers_size, sizeof(int), 1, file);
-    if (ferror(file)) {
-        fprintf(stderr, "Invalid file format\n");
-        return;
-    }
-
-    numbers = (int*) malloc(numbers_size * sizeof(int));
-
-    while (true) {
-        res = fread(numbers, sizeof(int), numbers_size, file);
-        if (feof(file)) {
-            break;
-        }
-        else if (ferror(file)) {
-            printf("Invalid file format\n");
-            return;
-        }
-    }
-    fclose(file);
 }
 
 void swap(int* arr, int i, int j, bool asc) {
@@ -393,13 +233,14 @@ void swap(int* arr, int i, int j, bool asc) {
         arr[i] = arr[j];
         arr[j] = temp;
     }
-    else if(!asc && arr[i] < arr[j]) {
+    else if (!asc && arr[i] < arr[j]) {
         int temp = arr[i];
         arr[i] = arr[j];
         arr[j] = temp;
     }
 }
 
+// TODO: start not needed?
 void bitonicMerge(int* arr, int size, int start, bool asc) {
     int v = size >> 1;
     int nL = 1;
@@ -427,18 +268,6 @@ void bitonicSort(int* arr, int size, bool asc) {
             asc = !asc;
         }
     }
-}
-
-void validate(int* val, int N) {
-    int i;
-    for (i = 0; i < N - 1; i++)
-        if (val[i] > val[i+1]) { 
-            printf ("Error in position %d between element %d and %d\n",
-            i, val[i], val[i+1]);
-            break;
-        }
-    if (i == (N - 1))
-        printf ("Everything is OK!\n");
 }
 
 void printUsage (char *cmdName) {
