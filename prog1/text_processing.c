@@ -120,7 +120,7 @@ int whatVowel(unsigned char* code);
 /** @brief True when the main thread knows there are no more files to be read. Worker threads exit when this value becomes true */
 static bool work_done = false;
 /** @brief True when the main thread knows the current file has been completely read. Worker threads wait when this value becomes true */
-static bool file_done = false;
+static bool file_done = true;
 /** @brief Number of files to be processed */
 static int n_files;
 /** @brief Number of threads to be run in the program. Can be changed with command-line arguments, and it's global 
@@ -147,8 +147,6 @@ int finished_processing = 0;
 int file_id = 0;
 /** @brief  */
 FILE *file_ptr;
-
-bool init_file = false;
 
 /**
  *  \brief Main thread.
@@ -365,8 +363,8 @@ void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo
             }
 
             // Increment vowel counter if it hasn't been counted
-            if (!has_counted[vowel]) {
-                has_counted[vowel] = true;
+            if (!has_counted[vowel-1]) {
+                has_counted[vowel-1] = true;
                 pInfo->partial_counters[pInfo->current_file_id][vowel]++;
             }
         }
@@ -382,14 +380,8 @@ void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo
     
 }
 
-int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *pInfo) {
-    if (!init_file) {
-        file_ptr = fopen(file_names[file_id], "r");
-        init_file = true;
-    }
-    
-    // Check if file has ended, open a new file if not every file has been processed
-    // TODO: we could consider file_done to be true at the very beginning, even if no file was actually done, and avoid using init_file
+int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *pInfo) {    
+    // Check if file has ended, open a new file if there are files to be processed
     if (file_done) {
         if (file_id == n_files) {
             work_done = true;
@@ -399,7 +391,7 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
         file_done = false;
     }
 
-    (*pInfo).current_file_id = file_id;
+    pInfo->current_file_id = file_id;
     int num = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, file_ptr);    
 
     if (feof(file_ptr)) {
@@ -458,21 +450,21 @@ static void printUsage (char *cmdName) {
 bool isalphanum(unsigned char* code) {
     
     return
-        (code[0] >= 0x30   && code[0] <= 0x39)   || 
-        (code[0] >= 0x41   && code[0] <= 0x5a)   ||
-        (code[0] == 0x5f)                     ||
-        (code[0] >= 0x61   && code[0] <= 0x7a)   ||
-        (code[0] >= 0x61   && code[0] <= 0x7a)   ||
-        (code[0] == 0xc3   && (
-            (code[1] >= 0x80 && code[1] <= 0x83) ||
-            (code[1] >= 0x87 && code[1] <= 0x8a) ||
-            (code[1] >= 0x8c && code[1] <= 0x8d) ||
-            (code[1] >= 0x92 && code[1] <= 0x95) ||
-            (code[1] >= 0x99 && code[1] <= 0x9a) ||
-            (code[1] >= 0xa0 && code[1] <= 0xa3) ||
-            (code[1] >= 0xa7 && code[1] <= 0xaa) ||
-            (code[1] >= 0xac && code[1] <= 0xad) ||
-            (code[1] >= 0xb2 && code[1] <= 0xb5) ||
+        (code[0] >= 0x30     && code[0] <= 0x39)    || 
+        (code[0] >= 0x41     && code[0] <= 0x5a)    ||
+        (code[0] == 0x5f)                           ||
+        (code[0] >= 0x61     && code[0] <= 0x7a)    ||
+        (code[0] >= 0x61     && code[0] <= 0x7a)    ||
+        (code[0] == 0xc3     && (
+            (code[1] >= 0x80 && code[1] <= 0x83)    ||
+            (code[1] >= 0x87 && code[1] <= 0x8a)    ||
+            (code[1] >= 0x8c && code[1] <= 0x8d)    ||
+            (code[1] >= 0x92 && code[1] <= 0x95)    ||
+            (code[1] >= 0x99 && code[1] <= 0x9a)    ||
+            (code[1] >= 0xa0 && code[1] <= 0xa3)    ||
+            (code[1] >= 0xa7 && code[1] <= 0xaa)    ||
+            (code[1] >= 0xac && code[1] <= 0xad)    ||
+            (code[1] >= 0xb2 && code[1] <= 0xb5)    ||
             (code[1] >= 0xb9 && code[1] <= 0xba) 
         ));
 }
