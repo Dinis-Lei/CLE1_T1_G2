@@ -194,6 +194,10 @@ int main (int argc, char *argv[]) {
     for (i = 0; i < n_threads; i++)
         worker_id[i] = i;
 
+    pthread_cond_init(&await_work_assignment, NULL);
+    pthread_cond_init(&await_work_request, NULL);
+    pthread_cond_init(&workers_finished, NULL);
+
     // Launch Workers and Distributor
     for (i = 0; i < n_threads; i++) {
         if (pthread_create(&t_worker_id[i], NULL, worker, &worker_id[i]) != 0) {
@@ -228,25 +232,13 @@ void *distributor(void *par) {
     unsigned int id = *((unsigned int *) par);
     int n_workers = n_threads;
 
-    if (pthread_mutex_lock(&accessCR)) {
-        perror ("error on entering monitor(CF)");
-        status_workers[id] = EXIT_FAILURE;
-        pthread_exit(&status_workers[id]);   
-    }
+    pthread_mutex_lock(&accessCR);
     readStoreFile(filename);
-    if (pthread_mutex_unlock(&accessCR)) {
-        perror ("error on exiting monitor(CF)");
-        status_workers[id] = EXIT_FAILURE;
-        pthread_exit(&status_workers[id]);   
-    }
+    pthread_mutex_unlock(&accessCR);
 
     for (int stage = n_threads; stage > 0; stage >>= 1) {
 
-        if (pthread_mutex_lock(&accessCR)) {
-            perror ("error on entering monitor(CF)");
-            status_workers[id] = EXIT_FAILURE;
-            pthread_exit(&status_workers[id]);   
-        }
+        pthread_mutex_lock(&accessCR);
 
         // The first iteration is done differently, since no workers are dispensed from work.
         // In the following iterations, however, half of the workers will be dispensed from work,
@@ -257,11 +249,7 @@ void *distributor(void *par) {
         // TODO error handling
         pthread_cond_broadcast(&await_work_assignment);
         while (n_of_work_requested < n_workers) {
-            if (pthread_cond_wait(&await_work_request, &accessCR)) {
-                perror ("error on waiting in fifoFull");
-                status_workers[id] = EXIT_FAILURE;
-                pthread_exit (status_workers[id]);
-            }
+            pthread_cond_wait(&await_work_request, &accessCR);
             n_of_work_requested += distributeWork(stage, n_of_work_requested);
             // TODO: C pthread uses Lampson & Redell right? Therefore we can't assume that after a signal the waiting
             // thread will execute immediately, so we have to broadcast instead of 1 signal here
@@ -269,20 +257,12 @@ void *distributor(void *par) {
         }
 
         while (n_of_work_finished < n_workers) {
-            if (pthread_cond_wait(&workers_finished, &accessCR)) {
-                perror ("error on waiting in fifoFull");
-                status_workers[id] = EXIT_FAILURE;
-                pthread_exit (status_workers[id]);
-            }
+            pthread_cond_wait(&workers_finished, &accessCR);
         }
         // Reset counter for the next iteration
         n_of_work_finished = 0;
 
-        if (pthread_mutex_unlock(&accessCR)) {
-            perror ("error on exiting monitor(CF)");
-            status_workers[id] = EXIT_FAILURE;
-            pthread_exit(&status_workers[id]);   
-        }
+        pthread_mutex_unlock(&accessCR);
     }
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
@@ -307,6 +287,7 @@ void *worker(void *par) {
         
         reportWork();
     }
+    printf("Exiting %d\n", id);
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
 }
@@ -329,6 +310,7 @@ int distributeWork(int stage, int n_of_work_requested) {
             }
 
             distributed_work++;
+            request_array[i] = false;
         }
     }
     return distributed_work;
@@ -365,18 +347,16 @@ void readStoreFile(char *filename) {
         return;
     }
 
-    int size = 0;
-    int res = fread(&size, sizeof(int), 1, file);
+    int res = fread(&numbers_size, sizeof(int), 1, file);
     if (ferror(file)) {
         fprintf(stderr, "Invalid file format\n");
         return;
     }
 
-    numbers = (int*) malloc(size * sizeof(int));
-    int count = 0;
+    numbers = (int*) malloc(numbers_size * sizeof(int));
 
     while (true) {
-        res = fread(&numbers[count++], sizeof(int), 1, file);
+        res = fread(&numbers, sizeof(int), numbers_size, file);
         if (feof(file)) {
             break;
         }
