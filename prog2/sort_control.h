@@ -58,7 +58,8 @@ void readIntegerFile();
 
 /**
  * @brief Continuously checks which workers have requested work and assigns it to them until the stored integer array is sorted
- * @param stage which stage of the sort it is
+ * @param work_to_distribute array of sorting work to distribute among workers
+ * @param n_workers number of work to distribute
  */
 void distributeWork(struct SorterWork* work_to_distribute, int n_workers);
 
