@@ -186,13 +186,15 @@ int main (int argc, char *argv[]) {
             || (worker_id = malloc(n_threads * sizeof(unsigned int))) == NULL
             || (status_workers = malloc(n_threads * sizeof(unsigned int))) == NULL
             || (work_array = calloc(n_threads, sizeof(struct SorterWork))) == NULL
-            || (request_array = calloc(n_threads, sizeof(bool))) == NULL) {
+            || (request_array = malloc(n_threads * sizeof(bool))) == NULL) {
         fprintf(stderr, "error on allocating space to both internal / external worker id arrays\n");
         exit(EXIT_FAILURE);
     }
 
-    for (i = 0; i < n_threads; i++)
+    for (i = 0; i < n_threads; i++) {
         worker_id[i] = i;
+        request_array[i] = false;
+    }
 
     pthread_cond_init(&await_work_assignment, NULL);
     pthread_cond_init(&await_work_request, NULL);
@@ -264,6 +266,17 @@ void *distributor(void *par) {
 
         pthread_mutex_unlock(&accessCR);
     }
+
+    // Tell the remaining worker to terminate
+    pthread_mutex_lock(&accessCR);
+    int last_request = distributeWork(0, 0);
+    while (last_request == 0) {
+        pthread_cond_wait(&await_work_request, &accessCR);
+        last_request = distributeWork(0, 0);
+        pthread_cond_broadcast(&await_work_assignment);
+    }
+    pthread_mutex_unlock(&accessCR);
+
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
 }
@@ -319,15 +332,15 @@ int distributeWork(int stage, int n_of_work_requested) {
 void requestWork(int id) {
     pthread_mutex_lock(&accessCR);
     request_array[id] = true;
-    pthread_mutex_unlock(&accessCR);
     pthread_cond_signal(&await_work_request);
+    pthread_mutex_unlock(&accessCR);
 }
 
 void reportWork() {
     pthread_mutex_lock(&accessCR);
     n_of_work_finished++;
-    pthread_mutex_unlock(&accessCR);
     pthread_cond_signal(&workers_finished);
+    pthread_mutex_unlock(&accessCR);
 }
 
 void fetchWork(int id, struct SorterWork* work) {
@@ -356,7 +369,7 @@ void readStoreFile(char *filename) {
     numbers = (int*) malloc(numbers_size * sizeof(int));
 
     while (true) {
-        res = fread(&numbers, sizeof(int), numbers_size, file);
+        res = fread(numbers, sizeof(int), numbers_size, file);
         if (feof(file)) {
             break;
         }
@@ -365,7 +378,7 @@ void readStoreFile(char *filename) {
             return;
         }
     }
-
+    fclose(file);
 }
 
 void swap(int* arr, int i, int j, bool asc) {
