@@ -119,14 +119,20 @@ void readIntegerFile() {
 
     FILE* file = fopen(filename, "rb");
     if (file == NULL) {
-        fprintf(stderr, "Error opening file %s", filename);
-        return;
+        fprintf(stderr, "Error opening file %s\n", filename);
+        exit(EXIT_FAILURE);
     }
 
     int res = fread(&numbers_size, sizeof(int), 1, file);
-    if (ferror(file)) {
-        fprintf(stderr, "Invalid file format\n");
-        return;
+    if (res != 1) {
+        if (ferror(file)) {
+            fprintf(stderr, "Invalid file format\n");
+            exit(EXIT_FAILURE);
+        }
+        else if (feof(file)) {
+            printf("Error: end of file reached\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
     numbers = (int*) malloc(numbers_size * sizeof(int));
@@ -138,7 +144,7 @@ void readIntegerFile() {
         }
         else if (ferror(file)) {
             printf("Invalid file format\n");
-            return;
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -207,6 +213,6 @@ bool validateSort() {
             return false;
         }
 
-    printf ("Everything is OK!\n");
+    printf("Everything is OK!\n");
     return true;
 }
