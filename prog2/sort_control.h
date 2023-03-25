@@ -6,6 +6,7 @@
  * @brief Monitor for mutual exclusion in Program 2.
  * 
  * Implements a Lampson/Redell monitor to allow concurrent distribution and requests of sorting work.
+ * The sorting work is distributed among all threads that had previously made a request.
  *
  * @date March 2023
  * 
@@ -84,4 +85,4 @@ void defineIntegerSubsequence(int number_of_subsequences, int subsequence_idx, i
  */
 bool validateSort();
 
-#endif
+#endif /* PROG2_SORT_CONTROL_H */

@@ -1,13 +1,12 @@
 /**
- * @file sort_control.h (implementation file)
+ * @file sort_control.c (implementation file)
  * 
  * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
  * 
  * @brief Monitor for mutual exclusion in Program 2.
  * 
  * Implements a Lampson/Redell monitor to allow concurrent distribution and requests of sorting work.
- * The sorting work is distributed among all threads in the first stage, and the number of participating
- * threads is halved at each subsequent stage.
+ * The sorting work is distributed among all threads that had previously made a request.
  *
  * @date March 2023
  * 
