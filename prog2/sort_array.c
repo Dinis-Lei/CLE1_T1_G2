@@ -63,6 +63,9 @@ void bitonicSort(int* arr, int size, bool asc);
  */
 void swap(int* arr, int i, int j, bool asc);
 
+/** \brief execution time measurement */
+static double get_delta_time(void);
+
 // Global state variables
 /** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
  * and it's global as the distributor thread needs to be aware of how many there are */
@@ -137,6 +140,8 @@ int main (int argc, char *argv[]) {
         worker_id[i] = i;
     distributor_id = i;
 
+    (void) get_delta_time ();
+
     // Launch Workers and Distributor
     for (i = 0; i < n_threads; i++) {
         if (pthread_create(&t_worker_id[i], NULL, worker, &worker_id[i]) != 0) {
@@ -164,6 +169,8 @@ int main (int argc, char *argv[]) {
     if (!validateSort())
         return EXIT_FAILURE;
 
+
+    printf ("\nElapsed time = %.6f s\n", get_delta_time ());
     return EXIT_SUCCESS;
 }
 
@@ -267,6 +274,19 @@ void bitonicSort(int* arr, int size, bool asc) {
             asc = !asc;
         }
     }
+}
+
+static double get_delta_time(void)
+{
+  static struct timespec t0, t1;
+
+  t0 = t1;
+  if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0)
+  {
+    perror ("clock_gettime");
+    exit(1);
+  }
+  return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
 }
 
 void printUsage (char *cmdName) {
