@@ -63,6 +63,9 @@ void bitonicSort(int* arr, int size, bool asc);
  */
 void swap(int* arr, int i, int j, bool asc);
 
+/** \brief execution time measurement */
+static double get_delta_time(void);
+
 // Global state variables
 /** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
  * and it's global as the distributor thread needs to be aware of how many there are */
@@ -85,13 +88,13 @@ int main (int argc, char *argv[]) {
                 if (atoi(optarg) <= 0){ 
                     fprintf(stderr, "%s: non positive number\n", basename(argv[0]));
                     printUsage(basename(argv[0]));
-                    return EXIT_FAILURE;
+                    exit(EXIT_FAILURE);
                 }
                 n_threads = (int) atoi(optarg);
                 if (n_threads > MAX_THREADS){ 
                     fprintf(stderr, "%s: too many threads\n", basename(argv[0]));
                     printUsage(basename(argv[0]));
-                    return EXIT_FAILURE;
+                    exit(EXIT_FAILURE);
                 }
                 break;
             case 'h':
@@ -99,7 +102,7 @@ int main (int argc, char *argv[]) {
                 return EXIT_SUCCESS;
             case '?': /* invalid option */
                 fprintf (stderr, "%s: invalid option\n", basename(argv[0]));
-                return EXIT_FAILURE;
+                exit(EXIT_FAILURE);
         }
     }
 
@@ -137,6 +140,8 @@ int main (int argc, char *argv[]) {
         worker_id[i] = i;
     distributor_id = i;
 
+    (void) get_delta_time ();
+
     // Launch Workers and Distributor
     for (i = 0; i < n_threads; i++) {
         if (pthread_create(&t_worker_id[i], NULL, worker, &worker_id[i]) != 0) {
@@ -162,9 +167,11 @@ int main (int argc, char *argv[]) {
     }
 
     if (!validateSort())
-        return EXIT_FAILURE;
+        exit(EXIT_FAILURE);
 
-    return EXIT_SUCCESS;
+
+    printf ("\nElapsed time = %.6f s\n", get_delta_time ());
+    exit(EXIT_SUCCESS);
 }
 
 
@@ -200,7 +207,6 @@ void *distributor(void *par) {
     pthread_exit(&status_workers[id]);
 }
 
-// TODO: proper error handling for pthread functions
 void *worker(void *par) {
     unsigned int id = *((unsigned int *) par);
     struct SorterWork work;
@@ -211,24 +217,19 @@ void *worker(void *par) {
         if (!work.should_work)
             break;
 
-        if (work.skip_sort) {
-            printf("Merge\n");
+        if (work.skip_sort)
             bitonicMerge(work.array, work.array_size, work.ascending); 
-        }
-        else {
-            printf("Sort\n");
+        else
             bitonicSort(work.array, work.array_size, work.ascending);
-        }
         
         reportWork();
     }
-    printf("Exiting %d\n", id);
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
 }
 
 void swap(int* arr, int i, int j, bool asc) {
-    if (asc && arr[i] > arr[j]) {
+    if (asc && arr[i] > arr[j]) {              
         int temp = arr[i];
         arr[i] = arr[j];
         arr[j] = temp;
@@ -269,8 +270,21 @@ void bitonicSort(int* arr, int size, bool asc) {
     }
 }
 
+static double get_delta_time(void)
+{
+  static struct timespec t0, t1;
+
+  t0 = t1;
+  if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0) {
+    perror ("clock_gettime");
+    exit(EXIT_FAILURE);
+  }
+  return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
+}
+
 void printUsage (char *cmdName) {
     fprintf(stderr, "\nSynopsis: %s [OPTIONS] FILE...\n"
            "  OPTIONS:\n"
-           "  -h      --- print this help\n", cmdName);
+           "  -h      --- print this help\n"
+           "  -t      --- Nº of worker threads launched, MAX = %d\n", cmdName, MAX_THREADS);
 }
