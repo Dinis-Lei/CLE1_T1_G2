@@ -261,7 +261,7 @@ static int checkCutOff(unsigned char* chunk) {
 
         // Check if its not alpha-numeric
         // TODO: check if apostrophe as well
-        if (!isalphanum(symbol)) {
+        if (!isalphanum(symbol) && !isapostrofe(symbol)) {
             return MAX_CHUNK_SIZE*1024 - chunk_ptr;
         }
         // Decrement chunk_ptr
