@@ -10,8 +10,8 @@
  * 
  * Defines the following procedures for the main thread:
  * \li storeFiles
- * \li clearFiles
  * \li printResults
+ * \li monitorFreeMemory
  * Defines the following procedures for the workers:
  * \li readChunk
  * \li updateCounters
@@ -54,18 +54,13 @@ static char** file_names;
 static int file_id = 0;
 /** @brief Pointer to the current file being processed */
 static FILE* file_ptr;
-/** @brief TODO */
+/** @brief Flag that tells whether the next file can be loaded when reading a chunk */
 static bool file_done = true;
+/** @brief Flag that guarantees the monitor is initialized once and only once */
+static pthread_once_t init = PTHREAD_ONCE_INIT;
 
 
-void storeFiles(char** file_names_in) {
-    if (pthread_mutex_lock(&accessCR)) {
-        printf("ERROR\n");
-        perror ("error on entering monitor(CF)");
-        status_main = EXIT_FAILURE;
-        pthread_exit(&status_main);   
-    }
-
+static void monitorInitialize() {
     if ((file_names = malloc(n_files * sizeof(char*))) == NULL  ||
         (counters = (int **)malloc(n_files*sizeof(int*))) == NULL) {
         fprintf(stderr, "error on allocating space to both internal / external worker id arrays\n");
@@ -73,25 +68,18 @@ void storeFiles(char** file_names_in) {
     }
 
     for (int i = 0; i < n_files; i++) {
-        file_names[i] = file_names_in[i];
         if ((counters[i] = calloc(N_VOWELS, sizeof(int))) == NULL) {
             fprintf(stderr, "Error on allocating space to both internal / external worker id arrays\n");
             exit(EXIT_FAILURE);
         }
     }
 
-    if (pthread_mutex_unlock(&accessCR)) {
-        printf("ERROR\n");
-        perror ("error on exiting monitor(CF)");
-        status_main = EXIT_FAILURE;
-        pthread_exit(&status_main);   
-    }
 }
 
-void clearFiles() {
+void monitorFreeMemory() {
     if (pthread_mutex_lock(&accessCR)) {
         printf("ERROR\n");
-        perror ("error on entering monitor(CF)");
+        perror("error on entering monitor(CF)");
         status_main = EXIT_FAILURE;
         pthread_exit(&status_main);
     }
@@ -103,9 +91,29 @@ void clearFiles() {
 
     if (pthread_mutex_unlock(&accessCR)) {
         printf("ERROR\n");
-        perror ("error on exiting monitor(CF)");
+        perror("error on exiting monitor(CF)");
         status_main = EXIT_FAILURE;
         pthread_exit(&status_main);
+    }
+}
+
+void storeFiles(char** file_names_in) {
+    if (pthread_mutex_lock(&accessCR)) {
+        printf("ERROR\n");
+        perror("error on entering monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit(&status_main);   
+    }
+    pthread_once(&init, monitorInitialize);
+
+    for (int i = 0; i < n_files; i++)
+        file_names[i] = file_names_in[i];
+
+    if (pthread_mutex_unlock(&accessCR)) {
+        printf("ERROR\n");
+        perror("error on exiting monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit(&status_main);   
     }
 }
 
@@ -115,6 +123,7 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
         status_workers[worker_id] = EXIT_FAILURE;
         pthread_exit(&status_workers[worker_id]);   
     }
+    pthread_once(&init, monitorInitialize);
     
     int chunk_size;
     bool no_more_work = false;
@@ -147,9 +156,8 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
         }
     }
 
-
     if (pthread_mutex_unlock(&accessCR)) {
-        perror ("error on exiting monitor(CF)");
+        perror("error on exiting monitor(CF)");
         status_workers[worker_id] = EXIT_FAILURE;
         pthread_exit(&status_workers[worker_id]);    
     }
@@ -161,10 +169,11 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
 void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
     if (pthread_mutex_lock(&accessCR)) {
         printf("ERROR\n");
-        perror ("error on entering monitor(CF)");
+        perror("error on entering monitor(CF)");
         status_workers[worker_id] = EXIT_FAILURE;
         pthread_exit (&status_workers[worker_id]);   
     }
+    pthread_once(&init, monitorInitialize);
 
     for (int file = 0; file < n_files; file++) {
         for (int i = 0; i < N_VOWELS; i++) {
@@ -174,13 +183,21 @@ void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
     }
     
     if (pthread_mutex_unlock(&accessCR)) {
-        perror ("error on entering monitor(CF)");
+        perror("error on entering monitor(CF)");
         status_workers[worker_id] = EXIT_FAILURE;
         pthread_exit (&status_workers[worker_id]);    
     }
 }
 
 void printResults() {
+    if (pthread_mutex_lock(&accessCR)) {
+        printf("ERROR\n");
+        perror("error on entering monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit(&status_main);   
+    }
+    pthread_once(&init, monitorInitialize);
+
     for (int i = 0; i < n_files; i++) {
         printf("File name: %s\n", file_names[i]);
         printf("Total number of words = %d\n", counters[i][0]);
@@ -190,6 +207,12 @@ void printResults() {
             printf("%5d\t", counters[i][j]);
         }
         printf("\n");
+    }
+
+    if (pthread_mutex_unlock(&accessCR)) {
+        perror("error on entering monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit(&status_main);    
     }
 }
 

@@ -10,7 +10,7 @@
  * 
  * Defines the following procedures for the main thread:
  * \li storeFiles
- * \li clearFiles
+ * \li monitorFreeMemory
  * \li printResults
  * Defines the following procedures for the workers:
  * \li readChunk
@@ -34,6 +34,12 @@ struct PartialInfo {
 };
 
 /**
+ * @brief Free all memory allocated to the files' names and word counters.
+ * 
+ */
+void monitorFreeMemory();
+
+/**
  * @brief Store the path of the files to process into shared memory.
  * 
  * Additionally, allocate memory for the word counters for each of the stored file paths.
@@ -41,12 +47,6 @@ struct PartialInfo {
  * @param file_names_in array of file paths
  */
 void storeFiles(char** file_names_in);
-
-/**
- * @brief Free all memory allocated to the files' names and word counters.
- * 
- */
-void clearFiles();
 
 /**
  * @brief Read a fixed-size chunk of text from the file being currently read.

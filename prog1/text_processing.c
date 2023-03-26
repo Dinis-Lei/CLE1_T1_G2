@@ -153,7 +153,7 @@ int main (int argc, char *argv[]) {
     free(worker_id);
     free(status_workers);
     
-    clearFiles();
+    monitorFreeMemory();
 
     return EXIT_SUCCESS;
 }

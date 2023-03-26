@@ -13,6 +13,7 @@
  * \li validateSort
  * Defines the following procedures for the distributor:
  * \li readIntegerFile
+ * \li defineIntegerSubsequence (no mutual exclusion needed)
  * \li distributeWork
  * Defines the following procedures for the workers:
  * \li fetchWork
@@ -31,6 +32,7 @@
 
 // External global variables
 extern int n_threads;
+extern int status_main;
 extern int* status_workers;
 extern int status_monitor_init;
 extern int status_distributor;
@@ -78,11 +80,6 @@ static pthread_once_t init = PTHREAD_ONCE_INIT;
 static int assignWork(struct SorterWork* work_to_distribute, int n_workers, int n_of_work_requested_so_far);
 
 
-// Initialization procedures
-void storeFilename(char* name) {
-    filename = name;
-}
-
 static void monitorInitialize() {
     if ((work_array = malloc(n_threads * sizeof(struct SorterWork))) == NULL
             || (request_array = malloc(n_threads * sizeof(bool))) == NULL) {
@@ -96,6 +93,17 @@ static void monitorInitialize() {
     pthread_cond_init(&await_work_assignment, NULL);
     pthread_cond_init(&await_work_request, NULL);
     pthread_cond_init(&workers_finished, NULL);
+}
+
+void monitorFreeMemory() {
+    free(work_array);
+    free(request_array);
+}
+
+void storeFilename(char* name) {
+    pthread_mutex_lock(&access_cr);
+    filename = name;
+    pthread_mutex_unlock(&access_cr);
 }
 
 // Worker procedures
@@ -214,6 +222,7 @@ static int assignWork(struct SorterWork* work_to_distribute, int n_workers, int 
 
 // Validation procedure
 bool validateSort() {
+    pthread_mutex_lock(&access_cr);
     int i;
     for (i = 0; i < numbers_size - 1; i++)
         if (numbers[i] > numbers[i+1]) { 
@@ -224,4 +233,5 @@ bool validateSort() {
 
     printf("Everything is OK!\n");
     return true;
+    pthread_mutex_unlock(&access_cr);
 }

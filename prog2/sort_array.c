@@ -26,6 +26,17 @@
 #include "constants.h"
 #include "sort_array.h"
 
+// Global state variables
+/** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
+ * and it's global as the distributor thread needs to be aware of how many there are */
+int n_threads = 4;
+/** @brief Exit status of the monitor initialization */
+int status_monitor_init;
+/** @brief Array holding the exit status of the worker threads */
+int* status_workers;
+/** @brief Exit status of the distributor */
+int status_distributor;
+
 /**
  * @brief Print program usage
  * @param cmdName program's name
@@ -65,17 +76,6 @@ void swap(int* arr, int i, int j, bool asc);
 
 /** \brief execution time measurement */
 static double get_delta_time(void);
-
-// Global state variables
-/** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
- * and it's global as the distributor thread needs to be aware of how many there are */
-int n_threads = 4;
-/** @brief Exit status of the monitor initialization */
-int status_monitor_init;
-/** @brief Array holding the exit status of the worker threads */
-int* status_workers;
-/** @brief Exit status of the distributor */
-int status_distributor;
 
 int main (int argc, char *argv[]) {
     int opt;
@@ -118,6 +118,7 @@ int main (int argc, char *argv[]) {
     pthread_t* t_worker_id;         // workers internal thread id array
     pthread_t t_distributor_id;     // distributor internal thread id
     unsigned int* worker_id;        // workers application thread id array
+    // TODO: does it make sense for the distributor to have an ID? it's only one
     unsigned int distributor_id;    // distributor application thread id
     int* pStatus;                   // pointer to execution status
     int i;                          // counting variable
@@ -169,6 +170,11 @@ int main (int argc, char *argv[]) {
     if (!validateSort())
         exit(EXIT_FAILURE);
 
+    free(t_worker_id);
+    free(worker_id);
+    free(status_workers);
+
+    monitorFreeMemory();
 
     printf ("\nElapsed time = %.6f s\n", get_delta_time ());
     exit(EXIT_SUCCESS);
@@ -203,8 +209,10 @@ void *distributor(void *par) {
     work_to_distribute[0].should_work = false;
     distributeWork(work_to_distribute, 1);
 
-    status_workers[id] = EXIT_SUCCESS;
-    pthread_exit(&status_workers[id]);
+    free(work_to_distribute);
+
+    status_distributor = EXIT_SUCCESS;
+    pthread_exit(&status_distributor);
 }
 
 void *worker(void *par) {
@@ -224,6 +232,7 @@ void *worker(void *par) {
         
         reportWork();
     }
+    
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
 }

@@ -43,6 +43,12 @@ struct SorterWork {
 };
 
 /**
+ * @brief Free all memory allocated to the work and request arrays.
+ * 
+ */
+void monitorFreeMemory();
+
+/**
  * @brief Store the name of the binary file containing the integer array to sort
  * @param name name of the file
  */
