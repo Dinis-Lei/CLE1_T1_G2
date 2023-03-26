@@ -1,7 +1,7 @@
 /**
  * @file sort_array.c (interface file)
  *
- * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
+ * @author Dinis Lei (dinislei@ua.pt), Martinho Tavares (martinho.tavares@ua.pt)
  *
  * @brief Main file for Program 2.
  * 

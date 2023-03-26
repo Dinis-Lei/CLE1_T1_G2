@@ -1,7 +1,7 @@
 /**
  * @file sort_array.c (implementation file)
  *
- * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
+ * @author Dinis Lei (dinislei@ua.pt), Martinho Tavares (martinho.tavares@ua.pt)
  *
  * @brief Main file for Program 2.
  * 
@@ -270,8 +270,7 @@ void bitonicSort(int* arr, int size, bool asc) {
     }
 }
 
-static double get_delta_time(void)
-{
+static double get_delta_time(void) {
   static struct timespec t0, t1;
 
   t0 = t1;
