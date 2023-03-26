@@ -224,11 +224,11 @@ static int checkCutOff(unsigned char* chunk) {
         
         readUTF8Character(chunk, symbol, &code_size);
         // Last Byte is the n-th byte of a 2 or more byte code
-        if((chunk[chunk_ptr] & 0xC0) == 0x80) {
+        if(code_size == 0 && (chunk[chunk_ptr] & 0xC0) == 0x80) {
             chunk_ptr--;
             continue;
         }
-        else {
+        else if (code_size == 0) {
             fprintf(stderr, "Error on parsing file chunk\n");
             exit(EXIT_FAILURE);
         }
