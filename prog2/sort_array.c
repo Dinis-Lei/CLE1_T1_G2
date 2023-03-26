@@ -30,12 +30,12 @@
 /** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
  * and it's global as the distributor thread needs to be aware of how many there are */
 int n_threads = 4;
+/** @brief Exit status of the main thread when performing operations on the monitor */
+int status_main;
 /** @brief Exit status of the monitor initialization */
 int status_monitor_init;
-/** @brief Array holding the exit status of the worker threads */
-int* status_workers;
-/** @brief Exit status of the distributor */
-int status_distributor;
+/** @brief Array holding the exit status of the worker and distributor threads */
+int* status_threads;
 
 /**
  * @brief Print program usage
@@ -55,7 +55,7 @@ static void *distributor(void *par);
  * @param size size of the sequence
  * @param asc is ascending
  */
-void bitonicMerge(int* arr, int size, bool asc);
+static void bitonicMerge(int* arr, int size, bool asc);
 
 /**
  * @brief Sort a sequence of integers into a bitonic sequence
@@ -63,7 +63,7 @@ void bitonicMerge(int* arr, int size, bool asc);
  * @param size size of the sequence
  * @param asc is ascending
  */
-void bitonicSort(int* arr, int size, bool asc);
+static void bitonicSort(int* arr, int size, bool asc);
 
 /**
  * @brief Swap elements in array in ascending or descending order
@@ -72,9 +72,9 @@ void bitonicSort(int* arr, int size, bool asc);
  * @param j index of second element
  * @param asc is ascending
  */
-void swap(int* arr, int i, int j, bool asc);
+static void swap(int* arr, int i, int j, bool asc);
 
-/** \brief execution time measurement */
+/** @brief Execution time measurement */
 static double get_delta_time(void);
 
 int main (int argc, char *argv[]) {
@@ -118,7 +118,6 @@ int main (int argc, char *argv[]) {
     pthread_t* t_worker_id;         // workers internal thread id array
     pthread_t t_distributor_id;     // distributor internal thread id
     unsigned int* worker_id;        // workers application thread id array
-    // TODO: does it make sense for the distributor to have an ID? it's only one
     unsigned int distributor_id;    // distributor application thread id
     int* pStatus;                   // pointer to execution status
     int i;                          // counting variable
@@ -132,7 +131,7 @@ int main (int argc, char *argv[]) {
      */
     if ((t_worker_id = malloc(n_threads * sizeof(pthread_t))) == NULL
             || (worker_id = malloc(n_threads * sizeof(unsigned int))) == NULL
-            || (status_workers = malloc(n_threads * sizeof(unsigned int))) == NULL) {
+            || (status_threads = malloc((n_threads + 1) * sizeof(unsigned int))) == NULL) {
         fprintf(stderr, "error on allocating space to both internal / external worker id arrays\n");
         exit(EXIT_FAILURE);
     }
@@ -172,7 +171,7 @@ int main (int argc, char *argv[]) {
 
     free(t_worker_id);
     free(worker_id);
-    free(status_workers);
+    free(status_threads);
 
     monitorFreeMemory();
 
@@ -181,7 +180,7 @@ int main (int argc, char *argv[]) {
 }
 
 
-void *distributor(void *par) {
+static void *distributor(void *par) {
     unsigned int id = *((unsigned int *) par);
 
     readIntegerFile();
@@ -211,11 +210,11 @@ void *distributor(void *par) {
 
     free(work_to_distribute);
 
-    status_distributor = EXIT_SUCCESS;
-    pthread_exit(&status_distributor);
+    status_threads[id] = EXIT_SUCCESS;
+    pthread_exit(&status_threads[id]);
 }
 
-void *worker(void *par) {
+static void *worker(void *par) {
     unsigned int id = *((unsigned int *) par);
     struct SorterWork work;
     
@@ -233,11 +232,11 @@ void *worker(void *par) {
         reportWork();
     }
     
-    status_workers[id] = EXIT_SUCCESS;
-    pthread_exit(&status_workers[id]);
+    status_threads[id] = EXIT_SUCCESS;
+    pthread_exit(&status_threads[id]);
 }
 
-void swap(int* arr, int i, int j, bool asc) {
+static void swap(int* arr, int i, int j, bool asc) {
     if (asc && arr[i] > arr[j]) {              
         int temp = arr[i];
         arr[i] = arr[j];
@@ -250,7 +249,7 @@ void swap(int* arr, int i, int j, bool asc) {
     }
 }
 
-void bitonicMerge(int* arr, int size, bool asc) {
+static void bitonicMerge(int* arr, int size, bool asc) {
     int v = size >> 1;
     int nL = 1;
     int n, u;
@@ -269,7 +268,7 @@ void bitonicMerge(int* arr, int size, bool asc) {
     }
 }
 
-void bitonicSort(int* arr, int size, bool asc) {
+static void bitonicSort(int* arr, int size, bool asc) {
     for (int j = 1; j <= log2(size); j++) {
         int N = pow(2, j);
         for (int i = 0; i < size; i += N) {
@@ -280,17 +279,17 @@ void bitonicSort(int* arr, int size, bool asc) {
 }
 
 static double get_delta_time(void) {
-  static struct timespec t0, t1;
+    static struct timespec t0, t1;
 
-  t0 = t1;
-  if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0) {
-    perror ("clock_gettime");
-    exit(EXIT_FAILURE);
-  }
-  return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
+    t0 = t1;
+    if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0) {
+        perror ("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+    return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
 }
 
-void printUsage (char *cmdName) {
+static void printUsage (char *cmdName) {
     fprintf(stderr, "\nSynopsis: %s [OPTIONS] FILE...\n"
            "  OPTIONS:\n"
            "  -h      --- print this help\n"

@@ -33,9 +33,8 @@
 // External global variables
 extern int n_threads;
 extern int status_main;
-extern int* status_workers;
+extern int* status_threads;
 extern int status_monitor_init;
-extern int status_distributor;
 
 /** @brief Array of work details for each of the sorter threads. Indexed by the threads' application id
  * (which should be an auto-incrementing counter) */
@@ -199,8 +198,10 @@ void distributeWork(struct SorterWork* work_to_distribute, int n_workers) {
 }
 
 void defineIntegerSubsequence(int number_of_subsequences, int subsequence_idx, int** subsequence, int* subsequence_size) {
+    pthread_mutex_lock(&access_cr);
     *subsequence_size = numbers_size / number_of_subsequences;
     *subsequence = numbers + subsequence_idx * (*subsequence_size);
+    pthread_mutex_unlock(&access_cr);
 }
 
 static int assignWork(struct SorterWork* work_to_distribute, int n_workers, int n_of_work_requested_so_far) {
