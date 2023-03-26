@@ -56,10 +56,13 @@ static void printUsage (char *cmdName);
  * @param chunk_size        number of bytes to be read from the chunk
  * @param worker_counters   array of counters to be overwritten with the chunk's word counts
  */
-void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo);
+static void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo);
 
 /** @brief Worker threads' function, which will concurrently update the word counters for the file in file_pointer */
-void *worker(void *id);
+static void *worker(void *id);
+
+/** @brief Execution time measurement */
+static double get_delta_time(void);
 
 /** @brief Number of threads to be run in the program. Can be changed with command-line arguments, and it's global 
  * as the worker threads need to be aware of how many there are 
@@ -159,7 +162,7 @@ int main (int argc, char *argv[]) {
     return EXIT_SUCCESS;
 }
 
-void *worker(void *par) {
+static void *worker(void *par) {
     unsigned int id = *((unsigned int *) par);
 
     struct PartialInfo pInfo;
@@ -197,7 +200,7 @@ void *worker(void *par) {
     pthread_exit(&status_workers[id]);
 }
 
-void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo) {
+static void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo) {
     unsigned char code[4] = {0, 0, 0, 0};                               // Utf-8 code of a symbol
     int code_size = 0;                                                  // Size of the code
     bool is_word = false;                                               // Checks if it is currently parsing a word
@@ -246,6 +249,18 @@ void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo
     }
     
 }
+
+static double get_delta_time(void) {
+    static struct timespec t0, t1;
+
+    t0 = t1;
+    if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0) {
+        perror ("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+    return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
+}
+
 
 static void printUsage (char *cmdName) {
     fprintf(stderr, "\nSynopsis: %s [OPTIONS] FILE...\n"
