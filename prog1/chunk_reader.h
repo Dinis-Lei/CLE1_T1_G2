@@ -3,7 +3,18 @@
  * 
  * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
  * 
- * @brief ...
+ * @brief Monitor for mutual exclusion in Program 1.
+ * 
+ * Implements a Lampson/Redell monitor to allow concurrent word counting on a
+ * list of files that are sequentially processed.
+ * 
+ * Defines the following procedures for the main thread:
+ * \li storeFiles
+ * \li clearFiles
+ * \li printResults
+ * Defines the following procedures for the workers:
+ * \li readChunk
+ * \li updateCounters
  * 
  * @date March 2023
  * 

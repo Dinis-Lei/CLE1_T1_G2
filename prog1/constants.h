@@ -12,7 +12,8 @@
 #ifndef PROG1_CONSTANTS_H
 #define PROG1_CONSTANTS_H
 
-#define  MAX_CHUNK_SIZE  2
+#define  MAX_THREADS  10
 #define  N_VOWELS  7
+#define  MAX_CHUNK_SIZE  4
 
 #endif /* PROG1_CONSTANTS_H */

@@ -7,6 +7,16 @@
  * 
  * Implements a Lampson/Redell monitor to allow concurrent distribution and requests of sorting work.
  * The sorting work is distributed among all threads that had previously made a request.
+ * 
+ * Defines the following procedures for the main thread:
+ * \li storeFilenane
+ * \li validateSort
+ * Defines the following procedures for the distributor:
+ * \li readIntegerFile
+ * \li distributeWork
+ * Defines the following procedures for the workers:
+ * \li fetchWork
+ * \li reportWork
  *
  * @date March 2023
  * 

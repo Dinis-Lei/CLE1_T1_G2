@@ -3,7 +3,18 @@
  * 
  * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
  * 
- * @brief ...
+ * @brief Monitor for mutual exclusion in Program 1.
+ * 
+ * Implements a Lampson/Redell monitor to allow concurrent word counting on a
+ * list of files that are sequentially processed.
+ * 
+ * Defines the following procedures for the main thread:
+ * \li storeFiles
+ * \li clearFiles
+ * \li printResults
+ * Defines the following procedures for the workers:
+ * \li readChunk
+ * \li updateCounters
  * 
  * @date March 2023
  * 
@@ -21,7 +32,6 @@
 // External global variables
 extern int* status_workers;
 extern int status_main;
-extern int max_chunk_size;
 extern int n_files;
 
 /**
@@ -123,7 +133,7 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
 
     if (!no_more_work) {
         pInfo->current_file_id = file_id;
-        chunk_size = fread(chunk, sizeof(char), max_chunk_size*1024, file_ptr);    
+        chunk_size = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, file_ptr);    
 
         if (feof(file_ptr)) {
             file_id++;
@@ -184,7 +194,7 @@ void printResults() {
 }
 
 static int checkCutOff(unsigned char* chunk) {
-    int chunk_ptr = max_chunk_size*1024 - 1;
+    int chunk_ptr = MAX_CHUNK_SIZE*1024 - 1;
     int code_size = 0;
     unsigned char symbol[4] = {0,0,0,0};
     while (true) {
@@ -216,7 +226,7 @@ static int checkCutOff(unsigned char* chunk) {
         }
 
         // Not enough bytes to form a complete code
-        if (max_chunk_size*1024 - chunk_ptr < code_size) {
+        if (MAX_CHUNK_SIZE*1024 - chunk_ptr < code_size) {
             chunk_ptr--;
             continue;
         }
@@ -229,7 +239,7 @@ static int checkCutOff(unsigned char* chunk) {
         // Check if its not alpha-numeric
         // TODO: check if apostrophe as well
         if (!isalphanum(symbol)) {
-            return max_chunk_size*1024 - chunk_ptr;
+            return MAX_CHUNK_SIZE*1024 - chunk_ptr;
         }
         // Decrement chunk_ptr
         chunk_ptr--;

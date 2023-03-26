@@ -189,11 +189,11 @@ void *distributor(void *par) {
         // while the other half works as expected.
         int n_workers = (stage == n_threads) ? stage : stage << 1;
         for (int work_id = 0; work_id < n_workers; work_id++) {
-            work_to_distribute[work_id].should_work = work_id < stage;            
+            work_to_distribute[work_id].should_work = work_id < stage;   // distribute work to half of the workers, and tell the other half to stop working (unless it's the first stage)          
             if (work_to_distribute[work_id].should_work) {                
                 defineIntegerSubsequence(stage, work_id, &work_to_distribute[work_id].array, &work_to_distribute[work_id].array_size);
-                work_to_distribute[work_id].ascending = (work_id % 2) == 0;
-                work_to_distribute[work_id].skip_sort = stage != n_threads;
+                work_to_distribute[work_id].ascending = (work_id % 2) == 0;   // the sorts alternate between ascending and descending
+                work_to_distribute[work_id].skip_sort = stage != n_threads;   // the bitonic sort (including merging) is only done in the first stage, afterwards it's merely merging
             }
         }
 
@@ -272,14 +272,14 @@ void bitonicSort(int* arr, int size, bool asc) {
 
 static double get_delta_time(void)
 {
-  static struct timespec t0, t1;
+    static struct timespec t0, t1;
 
-  t0 = t1;
-  if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0) {
-    perror ("clock_gettime");
-    exit(EXIT_FAILURE);
-  }
-  return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
+    t0 = t1;
+    if (clock_gettime(CLOCK_MONOTONIC, &t1) != 0) {
+        perror ("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+    return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
 }
 
 void printUsage (char *cmdName) {

@@ -3,7 +3,12 @@
  * 
  * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
  * 
- * @brief ...
+ * @brief Main file for Program 1.
+ * 
+ * Count the overall number of words and number of words containing each
+ * possible vowel in a list of files passed as argument.
+ * Each file is partitioned into chunks, that are distributed among workers
+ * to perform the word counting in parallel, using multithreading.
  * 
  * @date March 2023
  * 
@@ -24,15 +29,12 @@
 #include "chunk_reader.h"
 #include "text_processing.h"
 
-#define  MAX_THREADS  10
 
 // Global state variables
 /** @brief Array holding the exit status of the worker threads */
 int* status_workers;
 /** @brief Exit status of the main thread when performing operations on the monitor */
 int status_main;
-/** @brief Size of the chunks to be read by the workers, in kilobytes. Can be changed with command-line arguments */
-int max_chunk_size = MAX_CHUNK_SIZE;
 /** @brief Number of files to be processed */
 int n_files;
 
@@ -163,7 +165,7 @@ void *worker(void *par) {
     unsigned char *chunk;
     int chunk_size;
     
-    if ((chunk = malloc(max_chunk_size*1024 * sizeof(char))) == NULL ||
+    if ((chunk = malloc(MAX_CHUNK_SIZE*1024 * sizeof(char))) == NULL ||
         (pInfo.partial_counters = (int **) malloc(n_files * sizeof(int*))) == NULL) {
         perror("error on allocating space to both internal / external worker id arrays\n");
         status_workers[id] = EXIT_FAILURE;
@@ -247,5 +249,6 @@ void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo
 static void printUsage (char *cmdName) {
     fprintf(stderr, "\nSynopsis: %s [OPTIONS] FILE...\n"
            "  OPTIONS:\n"
-           "  -h      --- print this help\n", cmdName);
+           "  -h      --- print this help\n"
+           "  -t      --- Nº of worker threads launched, MAX = %d\n", cmdName, MAX_THREADS);
 }

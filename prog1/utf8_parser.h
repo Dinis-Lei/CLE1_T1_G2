@@ -3,7 +3,7 @@
  * 
  * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
  * 
- * @brief Helper functions for parsing an UTF-8 byte stream.
+ * @brief Helper functions for parsing and analyzing an UTF-8 byte stream.
  * 
  * @date March 2023
  * 
