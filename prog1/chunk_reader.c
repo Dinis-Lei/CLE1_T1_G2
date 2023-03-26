@@ -222,30 +222,15 @@ static int checkCutOff(unsigned char* chunk) {
     unsigned char symbol[4] = {0,0,0,0};
     while (true) {
         
-        // Last Byte is 1-byte Code
-        if (!(chunk[chunk_ptr] & 0x80)) {
-           code_size = 1;
-        }
-        // Last Byte is 1st byte of a 2-byte code
-        else if ((chunk[chunk_ptr] & 0xe0) == 0xc0) {
-            code_size = 2;
-        }
-        // Last Byte is 1st byte of a 3-byte code
-        else if ((chunk[chunk_ptr] & 0xf0) == 0xe0) {
-            code_size = 3;
-        }
-        // Last Byte is 1st byte of a 4-byte code
-        else if ((chunk[chunk_ptr] & 0xf8) == 0xf0) {
-            code_size = 4;
-        }
+        readUTF8Character(chunk, symbol, &code_size);
         // Last Byte is the n-th byte of a 2 or more byte code
-        else if((chunk[chunk_ptr] & 0xC0) == 0x80) {
+        if((chunk[chunk_ptr] & 0xC0) == 0x80) {
             chunk_ptr--;
             continue;
         }
         else {
             fprintf(stderr, "Error on parsing file chunk\n");
-            return -1;
+            exit(EXIT_FAILURE);
         }
 
         // Not enough bytes to form a complete code
@@ -260,7 +245,6 @@ static int checkCutOff(unsigned char* chunk) {
         }
 
         // Check if its not alpha-numeric
-        // TODO: check if apostrophe as well
         if (!isalphanum(symbol) && !isapostrofe(symbol)) {
             return MAX_CHUNK_SIZE*1024 - chunk_ptr;
         }
