@@ -33,16 +33,11 @@ struct PartialInfo {
     int current_file_id;
 };
 
-/**
- * @brief Free all memory allocated to the files' names and word counters.
- * 
- */
+/** @brief Free all memory allocated to the files' names and word counters */
 void monitorFreeMemory();
 
 /**
  * @brief Store the path of the files to process into shared memory.
- * 
- * Additionally, allocate memory for the word counters for each of the stored file paths.
  * 
  * @param file_names_in array of file paths
  */

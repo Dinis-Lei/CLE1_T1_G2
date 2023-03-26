@@ -29,7 +29,9 @@
 #include "utf8_parser.h"
 #include "chunk_reader.h"
 
+
 // External global variables
+
 extern int* status_workers;
 extern int status_main;
 extern int n_files;
@@ -42,10 +44,14 @@ extern int n_files;
 static int checkCutOff(unsigned char* chunk);
 
 // State Control variables
+
 /** \brief Locking flag which warrants mutual exclusion inside the monitor */
 static pthread_mutex_t accessCR = PTHREAD_MUTEX_INITIALIZER;
+/** @brief Flag that guarantees the monitor is initialized once and only once */
+static pthread_once_t init = PTHREAD_ONCE_INIT;
 
 // Shared region variables
+
 /** @brief Matrix holding the word counts: [words, words with A, words with E, words with I, words with O, words with U, words with Y] */
 static int** counters;
 /** @brief Array of file names to be processed */
@@ -56,20 +62,18 @@ static int file_id = 0;
 static FILE* file_ptr;
 /** @brief Flag that tells whether the next file can be loaded when reading a chunk */
 static bool file_done = true;
-/** @brief Flag that guarantees the monitor is initialized once and only once */
-static pthread_once_t init = PTHREAD_ONCE_INIT;
 
 
 static void monitorInitialize() {
     if ((file_names = malloc(n_files * sizeof(char*))) == NULL  ||
         (counters = (int **)malloc(n_files*sizeof(int*))) == NULL) {
-        fprintf(stderr, "error on allocating space to both internal / external worker id arrays\n");
+        fprintf(stderr, "error on allocating space for the arrays of file names and the rows of the word counters matrix\n");
         exit(EXIT_FAILURE);
     }
 
     for (int i = 0; i < n_files; i++) {
         if ((counters[i] = calloc(N_VOWELS, sizeof(int))) == NULL) {
-            fprintf(stderr, "Error on allocating space to both internal / external worker id arrays\n");
+            fprintf(stderr, "Error on allocating space for the columns of row %d of the partial counters matrix\n", i);
             exit(EXIT_FAILURE);
         }
     }
@@ -78,8 +82,7 @@ static void monitorInitialize() {
 
 void monitorFreeMemory() {
     if (pthread_mutex_lock(&accessCR)) {
-        printf("ERROR\n");
-        perror("error on entering monitor(CF)");
+        perror("error on entering monitor (CF)");
         status_main = EXIT_FAILURE;
         pthread_exit(&status_main);
     }
@@ -90,8 +93,7 @@ void monitorFreeMemory() {
     free(counters);
 
     if (pthread_mutex_unlock(&accessCR)) {
-        printf("ERROR\n");
-        perror("error on exiting monitor(CF)");
+        perror("error on exiting monitor (CF)");
         status_main = EXIT_FAILURE;
         pthread_exit(&status_main);
     }
@@ -99,8 +101,7 @@ void monitorFreeMemory() {
 
 void storeFiles(char** file_names_in) {
     if (pthread_mutex_lock(&accessCR)) {
-        printf("ERROR\n");
-        perror("error on entering monitor(CF)");
+        perror("error on entering monitor (CF)");
         status_main = EXIT_FAILURE;
         pthread_exit(&status_main);   
     }
@@ -110,8 +111,7 @@ void storeFiles(char** file_names_in) {
         file_names[i] = file_names_in[i];
 
     if (pthread_mutex_unlock(&accessCR)) {
-        printf("ERROR\n");
-        perror("error on exiting monitor(CF)");
+        perror("error on exiting monitor (CF)");
         status_main = EXIT_FAILURE;
         pthread_exit(&status_main);   
     }
@@ -119,7 +119,7 @@ void storeFiles(char** file_names_in) {
 
 int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *pInfo) {    
     if (pthread_mutex_lock(&accessCR)) {
-        perror ("error on entering monitor(CF)");
+        perror("error on entering monitor (CF)");
         status_workers[worker_id] = EXIT_FAILURE;
         pthread_exit(&status_workers[worker_id]);   
     }
@@ -136,6 +136,10 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
         }
         else {
             file_ptr = fopen(file_names[file_id], "r");
+            if (file_ptr == NULL) {
+                fprintf(stderr, "error opening file %s\n", file_names[file_id]);
+                exit(EXIT_FAILURE);
+            }
             file_done = false;
         }
     }
@@ -149,6 +153,10 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
             fclose(file_ptr);
             file_done = true;
         }
+        else if (ferror(file_ptr)) {
+            fprintf(stderr, "invalid file format\n");
+            exit(EXIT_FAILURE);
+        }
         else {
             int offset = checkCutOff(chunk);
             fseek(file_ptr, -offset, SEEK_CUR);
@@ -157,7 +165,7 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
     }
 
     if (pthread_mutex_unlock(&accessCR)) {
-        perror("error on exiting monitor(CF)");
+        perror("error on exiting monitor (CF)");
         status_workers[worker_id] = EXIT_FAILURE;
         pthread_exit(&status_workers[worker_id]);    
     }
@@ -168,8 +176,7 @@ int readChunk(unsigned int worker_id, unsigned char* chunk, struct PartialInfo *
 
 void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
     if (pthread_mutex_lock(&accessCR)) {
-        printf("ERROR\n");
-        perror("error on entering monitor(CF)");
+        perror("error on entering monitor (CF)");
         status_workers[worker_id] = EXIT_FAILURE;
         pthread_exit (&status_workers[worker_id]);   
     }
@@ -183,7 +190,7 @@ void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
     }
     
     if (pthread_mutex_unlock(&accessCR)) {
-        perror("error on entering monitor(CF)");
+        perror("error on exiting monitor (CF)");
         status_workers[worker_id] = EXIT_FAILURE;
         pthread_exit (&status_workers[worker_id]);    
     }
@@ -191,8 +198,7 @@ void updateCounters(unsigned int worker_id, struct PartialInfo *pInfo) {
 
 void printResults() {
     if (pthread_mutex_lock(&accessCR)) {
-        printf("ERROR\n");
-        perror("error on entering monitor(CF)");
+        perror("error on entering monitor (CF)");
         status_main = EXIT_FAILURE;
         pthread_exit(&status_main);   
     }
@@ -210,7 +216,7 @@ void printResults() {
     }
 
     if (pthread_mutex_unlock(&accessCR)) {
-        perror("error on entering monitor(CF)");
+        perror("error on exiting monitor (CF)");
         status_main = EXIT_FAILURE;
         pthread_exit(&status_main);    
     }
@@ -222,14 +228,14 @@ static int checkCutOff(unsigned char* chunk) {
     unsigned char symbol[4] = {0,0,0,0};
     while (true) {
         
-        readUTF8Character(chunk, symbol, &code_size);
+        readUTF8Character(&chunk[chunk_ptr], symbol, &code_size);
         // Last Byte is the n-th byte of a 2 or more byte code
-        if(code_size == 0 && (chunk[chunk_ptr] & 0xC0) == 0x80) {
+        if (code_size == 0 && (chunk[chunk_ptr] & 0xC0) == 0x80) {
             chunk_ptr--;
             continue;
         }
         else if (code_size == 0) {
-            fprintf(stderr, "Error on parsing file chunk\n");
+            perror("error on parsing file chunk\n");
             exit(EXIT_FAILURE);
         }
 
@@ -239,16 +245,11 @@ static int checkCutOff(unsigned char* chunk) {
             continue;
         }
 
-        // Grab code
-        for (int i = 0; i < code_size; i++) {
-            symbol[i] = chunk[chunk_ptr+i];
-        }
-
         // Check if its not alpha-numeric
         if (!isalphanum(symbol) && !isapostrofe(symbol)) {
             return MAX_CHUNK_SIZE*1024 - chunk_ptr;
         }
-        // Decrement chunk_ptr
+
         chunk_ptr--;
     }
 

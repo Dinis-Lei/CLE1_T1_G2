@@ -34,8 +34,9 @@ void readUTF8Character(unsigned char* byte_stream, unsigned char* code, int* cod
     }
 
     // Grab code
-    for (int i = 0; i < *code_size; i++)
+    for (int i = 0; i < *code_size; i++) {
         code[i] = byte_stream[i];
+    }
 }
 
 bool isalphanum(unsigned char* code) {

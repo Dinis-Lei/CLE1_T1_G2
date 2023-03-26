@@ -31,19 +31,19 @@
 
 
 // Global state variables
-/** @brief Array holding the exit status of the worker threads */
-int* status_workers;
-/** @brief Exit status of the main thread when performing operations on the monitor */
-int status_main;
 /** @brief Number of files to be processed */
 int n_files;
+/** @brief Exit status of the main thread when performing operations on the monitor */
+int status_main;
+/** @brief Array holding the exit status of the worker threads */
+int* status_workers;
 
 /**
- *  \brief Print command usage.
+ *  @brief Print command usage.
  *
  *  A message specifying how the program should be called is printed.
  *
- *  \param cmdName string with the name of the command
+ *  @param cmdName string with the name of the command
  */
 static void printUsage (char *cmdName);
 
@@ -52,9 +52,9 @@ static void printUsage (char *cmdName);
  * 
  * Performed by the worker threads in parallel.
  *
- * @param chunk             the chunk of text to calculate word counts
- * @param chunk_size        number of bytes to be read from the chunk
- * @param worker_counters   array of counters to be overwritten with the chunk's word counts
+ * @param chunk the chunk of text to calculate word counts
+ * @param chunk_size number of bytes to be read from the chunk
+ * @param pInfo partial info containing the counters to be updated with the chunk's word counts
  */
 static void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo);
 
@@ -64,20 +64,18 @@ static void *worker(void *id);
 /** @brief Execution time measurement */
 static double get_delta_time(void);
 
-/** @brief Number of threads to be run in the program. Can be changed with command-line arguments, and it's global 
- * as the worker threads need to be aware of how many there are 
- */
+/** @brief Number of threads to be run in the program. Can be changed with command-line arguments */
 static int n_threads = 4;
 
 /**
- *  \brief Main thread.
+ * @brief Main thread.
  *
- *  Its role is starting the processing by generating the workers threads and redistribute work for them.
+ * Its role is storing the name of the files to process, and then launching the workers that will count words on them.
+ * Afterwards, it waits for their termination, and prints the counting results in the end.
  *
- *  \param argc number of words of the command line
- *  \param argv list of words of the command line
- *
- *  \return status of operation
+ * @param argc number of words of the command line
+ * @param argv list of words of the command line
+ * @return status of operation
  */
 int main (int argc, char *argv[]) {
 
@@ -85,7 +83,7 @@ int main (int argc, char *argv[]) {
     extern char* optarg;
     extern int optind;
 
-    while((opt = getopt(argc, argv, "t:h")) != -1) {
+    while ((opt = getopt(argc, argv, "t:h")) != -1) {
         switch (opt) {
             case 't': /* number of threads to be created */
                 if (atoi(optarg) <= 0){ 
@@ -114,27 +112,29 @@ int main (int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
+    n_files = argc - optind;
+
     pthread_t* t_worker_id;         // workers internal thread id array
     unsigned int* worker_id;        // workers application thread id array
     int* pStatus;                   // pointer to execution status
     int i;                          // counting variable
 
-    n_files = argc - optind;
-
     /* Initializing the internal and application-defined thread id arrays, thread status array */
     if ((t_worker_id = malloc(n_threads * sizeof(pthread_t))) == NULL  ||
         (worker_id = malloc(n_threads * sizeof(unsigned int))) == NULL ||
         (status_workers = malloc(n_threads * sizeof(unsigned int))) == NULL) {
-        fprintf(stderr, "error on allocating space to both internal / external worker id arrays\n");
+        fprintf(stderr, "error on allocating space for arrays of internal / application worker ids and worker status\n");
         exit(EXIT_FAILURE);
     }
 
-    for (i = 0; i < n_threads; i++)
+    for (i = 0; i < n_threads; i++) {
         worker_id[i] = i;
+    }
 
     storeFiles(&argv[optind]);
 
-    (void) get_delta_time ();
+    (void) get_delta_time();
+
     // Launch Workers
     for (i = 0; i < n_threads; i++) {
         if (pthread_create(&t_worker_id[i], NULL, worker, &worker_id[i]) != 0) {
@@ -171,14 +171,14 @@ static void *worker(void *par) {
     
     if ((chunk = malloc(MAX_CHUNK_SIZE*1024 * sizeof(char))) == NULL ||
         (pInfo.partial_counters = (int **) malloc(n_files * sizeof(int*))) == NULL) {
-        perror("error on allocating space to both internal / external worker id arrays\n");
+        fprintf(stderr, "error on allocating space for the worker text chunk and the rows of the partial counters matrix\n");
         status_workers[id] = EXIT_FAILURE;
         pthread_exit(&status_workers[id]);
     }
 
     for (int i = 0; i < n_files; i++) {
         if ((pInfo.partial_counters[i] = (int *) calloc(N_VOWELS, sizeof(int))) == NULL) {
-            perror("error on allocating space to both internal / external worker id arrays\n");
+            fprintf(stderr, "error on allocating space for the columns of row %d of the partial counters matrix\n", i);
             status_workers[id] = EXIT_FAILURE;
             pthread_exit(&status_workers[id]);
         }
@@ -201,18 +201,17 @@ static void *worker(void *par) {
 }
 
 static void processText(unsigned char* chunk, int chunk_size, struct PartialInfo *pInfo) {
-    unsigned char code[4] = {0, 0, 0, 0};                               // Utf-8 code of a symbol
+    unsigned char code[4] = {0, 0, 0, 0};                               // UTF-8 code of a symbol
     int code_size = 0;                                                  // Size of the code
     bool is_word = false;                                               // Checks if it is currently parsing a word
     bool has_counted[6] = {false, false, false, false, false, false};   // Controls if given vowel has already been counted
     int byte_ptr = 0;                                                   // Current byte being read in the chunk
-    while (byte_ptr < chunk_size) {    
-        code_size = 0;
 
+    while (byte_ptr < chunk_size) {    
         readUTF8Character(&chunk[byte_ptr], code, &code_size);
 
         if (code_size == 0){
-            fprintf(stderr, "Error on processing file chunk\n");
+            fprintf(stderr, "error on processing file chunk, could not parse UTF-8 character\n");
             return;
         }
 
@@ -225,6 +224,7 @@ static void processText(unsigned char* chunk, int chunk_size, struct PartialInfo
                 pInfo->partial_counters[pInfo->current_file_id][0]++;
             }
             is_word = true;
+
             // Check if code corresponds to a vowel
             int vowel = whatVowel(code);
 
@@ -254,13 +254,13 @@ static double get_delta_time(void) {
     static struct timespec t0, t1;
 
     t0 = t1;
-    if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0) {
-        perror ("clock_gettime");
+    if (clock_gettime(CLOCK_MONOTONIC, &t1) != 0) {
+        perror("clock_gettime");
         exit(EXIT_FAILURE);
     }
+
     return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
 }
-
 
 static void printUsage (char *cmdName) {
     fprintf(stderr, "\nSynopsis: %s [OPTIONS] FILE...\n"
