@@ -116,6 +116,9 @@ bool isapostrofe(unsigned char* code);
  */
 int whatVowel(unsigned char* code);
 
+/** \brief execution time measurement */
+static double get_delta_time(void);
+
 // Global state variables
 /** @brief True when the main thread knows there are no more files to be read. Worker threads exit when this value becomes true */
 static bool work_done = false;
@@ -223,6 +226,8 @@ int main (int argc, char *argv[]) {
         }
     }
 
+    (void) get_delta_time ();
+
     // Launch Workers
     for (i = 0; i < n_threads; i++) {
         if (pthread_create(&t_worker_id[i], NULL, worker, &worker_id[i]) != 0) {
@@ -248,6 +253,7 @@ int main (int argc, char *argv[]) {
         free(counters[i]);
     free(counters);
 
+    printf ("\nElapsed time = %.6f s\n", get_delta_time ());
     return EXIT_SUCCESS;
 }
 
@@ -513,7 +519,7 @@ int checkCutOff(unsigned char* chunk) {
         }
 
         // Check if its not alpha-numeric
-        if (!isalphanum(symbol)) {
+        if (!isalphanum(symbol) && !isapostrofe(symbol)) {
             return MAX_CHUNK_SIZE*1024 - chunk_ptr;
         }
         // Decrement chunk_ptr
@@ -548,4 +554,15 @@ int whatVowel(unsigned char* code) {
     }
 
     return -1;
+}
+
+static double get_delta_time(void) {
+    static struct timespec t0, t1;
+
+    t0 = t1;
+    if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0) {
+        perror ("clock_gettime");
+        exit(EXIT_FAILURE);
+    }
+    return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
 }
