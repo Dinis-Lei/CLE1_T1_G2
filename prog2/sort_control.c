@@ -151,6 +151,11 @@ void readIntegerFile() {
         }
     }
 
+    if ((numbers_size != 0) && ((numbers_size & (numbers_size - 1)) == 0)) {
+        fprintf(stderr, "Invalid file, Array must be a power of 2\n");
+        exit(EXIT_FAILURE);
+    }
+
     numbers = (int*) malloc(numbers_size * sizeof(int));
 
     while (true) {
