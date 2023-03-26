@@ -206,7 +206,7 @@ void printResults() {
         for(int j = 1; j < N_VOWELS; j++) {
             printf("%5d\t", counters[i][j]);
         }
-        printf("\n");
+        printf("\n\n");
     }
 
     if (pthread_mutex_unlock(&accessCR)) {
