@@ -26,6 +26,17 @@
 #include "constants.h"
 #include "sort_array.h"
 
+// Global state variables
+/** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
+ * and it's global as the distributor thread needs to be aware of how many there are */
+int n_threads = 4;
+/** @brief Exit status of the monitor initialization */
+int status_monitor_init;
+/** @brief Array holding the exit status of the worker threads */
+int* status_workers;
+/** @brief Exit status of the distributor */
+int status_distributor;
+
 /**
  * @brief Print program usage
  * @param cmdName program's name
@@ -65,17 +76,6 @@ void swap(int* arr, int i, int j, bool asc);
 
 /** \brief execution time measurement */
 static double get_delta_time(void);
-
-// Global state variables
-/** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
- * and it's global as the distributor thread needs to be aware of how many there are */
-int n_threads = 4;
-/** @brief Exit status of the monitor initialization */
-int status_monitor_init;
-/** @brief Array holding the exit status of the worker threads */
-int* status_workers;
-/** @brief Exit status of the distributor */
-int status_distributor;
 
 int main (int argc, char *argv[]) {
     int opt;
@@ -118,6 +118,7 @@ int main (int argc, char *argv[]) {
     pthread_t* t_worker_id;         // workers internal thread id array
     pthread_t t_distributor_id;     // distributor internal thread id
     unsigned int* worker_id;        // workers application thread id array
+    // TODO: does it make sense for the distributor to have an ID? it's only one
     unsigned int distributor_id;    // distributor application thread id
     int* pStatus;                   // pointer to execution status
     int i;                          // counting variable
@@ -169,6 +170,11 @@ int main (int argc, char *argv[]) {
     if (!validateSort())
         exit(EXIT_FAILURE);
 
+    free(t_worker_id);
+    free(worker_id);
+    free(status_workers);
+
+    monitorFreeMemory();
 
     printf ("\nElapsed time = %.6f s\n", get_delta_time ());
     exit(EXIT_SUCCESS);
@@ -189,11 +195,11 @@ void *distributor(void *par) {
         // while the other half works as expected.
         int n_workers = (stage == n_threads) ? stage : stage << 1;
         for (int work_id = 0; work_id < n_workers; work_id++) {
-            work_to_distribute[work_id].should_work = work_id < stage;            
+            work_to_distribute[work_id].should_work = work_id < stage;   // distribute work to half of the workers, and tell the other half to stop working (unless it's the first stage)          
             if (work_to_distribute[work_id].should_work) {                
                 defineIntegerSubsequence(stage, work_id, &work_to_distribute[work_id].array, &work_to_distribute[work_id].array_size);
-                work_to_distribute[work_id].ascending = (work_id % 2) == 0;
-                work_to_distribute[work_id].skip_sort = stage != n_threads;
+                work_to_distribute[work_id].ascending = (work_id % 2) == 0;   // the sorts alternate between ascending and descending
+                work_to_distribute[work_id].skip_sort = stage != n_threads;   // the bitonic sort (including merging) is only done in the first stage, afterwards it's merely merging
             }
         }
 
@@ -203,8 +209,10 @@ void *distributor(void *par) {
     work_to_distribute[0].should_work = false;
     distributeWork(work_to_distribute, 1);
 
-    status_workers[id] = EXIT_SUCCESS;
-    pthread_exit(&status_workers[id]);
+    free(work_to_distribute);
+
+    status_distributor = EXIT_SUCCESS;
+    pthread_exit(&status_distributor);
 }
 
 void *worker(void *par) {
@@ -224,6 +232,7 @@ void *worker(void *par) {
         
         reportWork();
     }
+    
     status_workers[id] = EXIT_SUCCESS;
     pthread_exit(&status_workers[id]);
 }

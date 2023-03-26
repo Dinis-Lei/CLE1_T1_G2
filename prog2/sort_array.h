@@ -1,5 +1,5 @@
 /**
- * @file sort_array.c (interface file)
+ * @file sort_array.h (interface file)
  *
  * @author Dinis Lei (dinislei@ua.pt), Martinho Tavares (martinho.tavares@ua.pt)
  *

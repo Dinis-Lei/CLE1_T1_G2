@@ -6,6 +6,17 @@
  * @brief Monitor for mutual exclusion in Program 2.
  * 
  * Implements a Lampson/Redell monitor to allow concurrent distribution and requests of sorting work.
+ * The sorting work is distributed among all threads that had previously made a request.
+ * 
+ * Defines the following procedures for the main thread:
+ * \li storeFilenane
+ * \li validateSort
+ * Defines the following procedures for the distributor:
+ * \li readIntegerFile
+ * \li distributeWork
+ * Defines the following procedures for the workers:
+ * \li fetchWork
+ * \li reportWork
  *
  * @date March 2023
  * 
@@ -32,6 +43,12 @@ struct SorterWork {
 };
 
 /**
+ * @brief Free all memory allocated to the work and request arrays.
+ * 
+ */
+void monitorFreeMemory();
+
+/**
  * @brief Store the name of the binary file containing the integer array to sort
  * @param name name of the file
  */
@@ -43,12 +60,6 @@ void storeFilename(char* name);
  * @param work the work details to be fetched
  */
 void fetchWork(int id, struct SorterWork* work);
-
-/**
- * @brief Request work from the distributor
- * @param id application defined worker thread id
- */
-void requestWork(int id);
 
 /** @brief Signal that the sorting work has been finished. To be done by the worker threads */
 void reportWork();
@@ -84,4 +95,4 @@ void defineIntegerSubsequence(int number_of_subsequences, int subsequence_idx, i
  */
 bool validateSort();
 
-#endif
+#endif /* PROG2_SORT_CONTROL_H */
