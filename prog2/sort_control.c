@@ -11,9 +11,10 @@
  * Defines the following procedures for the main thread:
  * \li storeFilenane
  * \li validateSort
+ * \li monitorFreeMemory
  * Defines the following procedures for the distributor:
  * \li readIntegerFile
- * \li defineIntegerSubsequence (no mutual exclusion needed)
+ * \li defineIntegerSubsequence
  * \li distributeWork
  * Defines the following procedures for the workers:
  * \li fetchWork
@@ -30,11 +31,16 @@
 
 #include "sort_control.h"
 
+
 // External global variables
+
 extern int n_threads;
 extern int status_main;
 extern int* status_threads;
 extern int status_monitor_init;
+
+
+// Shared memory variables
 
 /** @brief Array of work details for each of the sorter threads. Indexed by the threads' application id
  * (which should be an auto-incrementing counter) */
@@ -42,8 +48,6 @@ static struct SorterWork* work_array;
 /** @brief Array of work requests for each of the sorter threads. Indexed by the threads' application id
  * (which should be an auto-incrementing counter) */
 static bool* request_array;
-
-// Shared memory variables
 /** @brief Array of integers to sort */
 static int* numbers;
 /** @brief Size of numbers array */
@@ -54,6 +58,7 @@ static char *filename;
 static int n_of_work_finished = 0;
 
 // State Control variables
+
 /** @brief Workers' synchronization point for new work to be assigned */
 static pthread_cond_t await_work_assignment;
 /** @brief Distributor's synchronization point for when the workers request work */
@@ -95,42 +100,94 @@ static void monitorInitialize() {
 }
 
 void monitorFreeMemory() {
+    if (pthread_mutex_lock(&access_cr)) {
+        perror("error on entering monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit(&status_main);
+    }
+
     free(work_array);
     free(request_array);
+
+    if (pthread_mutex_unlock(&access_cr)) {
+        perror("error on exiting monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit(&status_main);
+    }
 }
 
 void storeFilename(char* name) {
-    pthread_mutex_lock(&access_cr);
+    if (pthread_mutex_lock(&access_cr)) {
+        perror("error on entering monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit (&status_main);   
+    }
     filename = name;
-    pthread_mutex_unlock(&access_cr);
+    if (pthread_mutex_unlock(&access_cr)) {
+        perror("error on exiting monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit (&status_main);   
+    }
 }
 
 // Worker procedures
 void fetchWork(int id, struct SorterWork* work) {
-    pthread_mutex_lock(&access_cr);
+    if (pthread_mutex_lock(&access_cr)) {
+        perror("error on entering monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
     pthread_once(&init, monitorInitialize);
     request_array[id] = true;
-    pthread_cond_signal(&await_work_request);
+    if (pthread_cond_signal(&await_work_request)) {
+        perror("error on signal");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]); 
+    }
 
     // If the request hasn't been fulfilled yet
     while (request_array[id]) {
-        pthread_cond_wait(&await_work_assignment, &access_cr);
+        if (pthread_cond_wait(&await_work_assignment, &access_cr)) {
+            perror("error on waiting");
+            status_threads[id] = EXIT_FAILURE;
+            pthread_exit (&status_threads[id]); 
+        }
     }
     *work = work_array[id];
-    pthread_mutex_unlock(&access_cr);
+    if (pthread_mutex_unlock(&access_cr)) {
+        perror("error on exiting monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
 }
 
-void reportWork() {
-    pthread_mutex_lock(&access_cr);
+void reportWork(int id) {
+    if (pthread_mutex_lock(&access_cr)) {
+        perror("error on entering monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
     pthread_once(&init, monitorInitialize);
     n_of_work_finished++;
-    pthread_cond_signal(&workers_finished);
-    pthread_mutex_unlock(&access_cr);
+    if (pthread_cond_signal(&workers_finished)) {
+        perror("error on signal");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]); 
+    }
+    if (pthread_mutex_unlock(&access_cr)) {
+        perror("error on exiting monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
 }
 
 // Distributor procedures
-void readIntegerFile() {
-    pthread_mutex_lock(&access_cr);
+void readIntegerFile(int id) {
+    if (pthread_mutex_lock(&access_cr)) {
+        perror("error on entering monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
     pthread_once(&init, monitorInitialize);
 
     FILE* file = fopen(filename, "rb");
@@ -151,7 +208,7 @@ void readIntegerFile() {
         }
     }
 
-    if ((numbers_size != 0) && ((numbers_size & (numbers_size - 1)) == 0)) {
+    if ((numbers_size != 0) && ((numbers_size & (numbers_size - 1)) != 0)) {
         fprintf(stderr, "Invalid file, Array must be a power of 2\n");
         exit(EXIT_FAILURE);
     }
@@ -164,18 +221,26 @@ void readIntegerFile() {
             break;
         }
         else if (ferror(file)) {
-            printf("Invalid file format\n");
+            fprintf(stderr, "Invalid file format\n");
             exit(EXIT_FAILURE);
         }
     }
 
     fclose(file);
 
-    pthread_mutex_unlock(&access_cr);
+    if (pthread_mutex_unlock(&access_cr)) {
+        perror("error on exiting monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
 }
 
-void distributeWork(struct SorterWork* work_to_distribute, int n_workers) {
-    pthread_mutex_lock(&access_cr);
+void distributeWork(int id, struct SorterWork* work_to_distribute, int n_workers) {
+    if (pthread_mutex_lock(&access_cr)) {
+        perror("error on entering monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
     pthread_once(&init, monitorInitialize);
 
     int actual_workers = 0;
@@ -185,28 +250,56 @@ void distributeWork(struct SorterWork* work_to_distribute, int n_workers) {
 
     int n_of_work_requested_so_far = 0;
     n_of_work_requested_so_far = assignWork(work_to_distribute, n_workers, n_of_work_requested_so_far);
-    pthread_cond_broadcast(&await_work_assignment);
+    if (pthread_cond_broadcast(&await_work_assignment)) {
+        perror("error on broadcast");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]); 
+    }
     while (n_of_work_requested_so_far < n_workers) {
-        pthread_cond_wait(&await_work_request, &access_cr);
+        if (pthread_cond_wait(&await_work_request, &access_cr)) {
+            perror("error on waiting");
+            status_threads[id] = EXIT_FAILURE;
+            pthread_exit (&status_threads[id]); 
+        }
         n_of_work_requested_so_far += assignWork(work_to_distribute, n_workers, n_of_work_requested_so_far);
-        pthread_cond_broadcast(&await_work_assignment);
+        if (pthread_cond_broadcast(&await_work_assignment)) {
+            perror("error on broadcast");
+            status_threads[id] = EXIT_FAILURE;
+            pthread_exit (&status_threads[id]); 
+        }
     }
 
     // The number of actually effective workers is different from the n_of_work_requested_so_far
     while (n_of_work_finished < actual_workers) {
-        pthread_cond_wait(&workers_finished, &access_cr);
+        if (pthread_cond_wait(&workers_finished, &access_cr)) {
+            perror("error on waiting");
+            status_threads[id] = EXIT_FAILURE;
+            pthread_exit (&status_threads[id]); 
+        }
     }
     // Reset counter for future work distributions
     n_of_work_finished = 0;
 
-    pthread_mutex_unlock(&access_cr);
+    if (pthread_mutex_unlock(&access_cr)) {
+        perror("error on exiting monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
 }
 
-void defineIntegerSubsequence(int number_of_subsequences, int subsequence_idx, int** subsequence, int* subsequence_size) {
-    pthread_mutex_lock(&access_cr);
+void defineIntegerSubsequence(int id, int number_of_subsequences, int subsequence_idx, int** subsequence, int* subsequence_size) {
+    if (pthread_mutex_lock(&access_cr)) {
+        perror("error on entering monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
     *subsequence_size = numbers_size / number_of_subsequences;
     *subsequence = numbers + subsequence_idx * (*subsequence_size);
-    pthread_mutex_unlock(&access_cr);
+    if (pthread_mutex_unlock(&access_cr)) {
+        perror("error on exiting monitor(CF)");
+        status_threads[id] = EXIT_FAILURE;
+        pthread_exit (&status_threads[id]);   
+    }
 }
 
 static int assignWork(struct SorterWork* work_to_distribute, int n_workers, int n_of_work_requested_so_far) {
@@ -228,16 +321,30 @@ static int assignWork(struct SorterWork* work_to_distribute, int n_workers, int 
 
 // Validation procedure
 bool validateSort() {
-    pthread_mutex_lock(&access_cr);
+    bool correct_sort = true;
+
+    if (pthread_mutex_lock(&access_cr)) {
+        perror("error on entering monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit (&status_main);   
+    }
     int i;
     for (i = 0; i < numbers_size - 1; i++)
         if (numbers[i] > numbers[i+1]) { 
-            printf ("Error in position %d between element %d and %d\n",
+            printf("Error in position %d between element %d and %d\n",
             i, numbers[i], numbers[i+1]);
-            return false;
+            correct_sort = false;
+            break;
         }
 
-    printf("Everything is OK!\n");
-    return true;
-    pthread_mutex_unlock(&access_cr);
+    if (!correct_sort)
+        printf("Everything is OK!\n");
+    
+    if (pthread_mutex_unlock(&access_cr)) {
+        perror("error on exiting monitor(CF)");
+        status_main = EXIT_FAILURE;
+        pthread_exit (&status_main);   
+    }
+
+    return correct_sort;
 }

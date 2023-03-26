@@ -11,7 +11,6 @@
 #ifndef PROG2_CONSTANTS_H
 #define PROG2_CONSTANTS_H
 
-/** @brief The maximum allowed number of threads */
 #define MAX_THREADS 16
 
 #endif

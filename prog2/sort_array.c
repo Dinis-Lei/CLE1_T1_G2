@@ -26,9 +26,12 @@
 #include "constants.h"
 #include "sort_array.h"
 
+
 // Global state variables
+
 /** @brief Number of threads to be run in the program. Can be changed with command-line arguments, 
- * and it's global as the distributor thread needs to be aware of how many there are */
+ * and it's global as the distributor thread needs to be aware of how many there are
+ */
 int n_threads = 4;
 /** @brief Exit status of the main thread when performing operations on the monitor */
 int status_main;
@@ -38,8 +41,11 @@ int status_monitor_init;
 int* status_threads;
 
 /**
- * @brief Print program usage
- * @param cmdName program's name
+ * @brief Print command usage.
+ *
+ * A message specifying how the program should be called is printed.
+ *
+ * @param cmdName string with the name of the command
  */
 static void printUsage (char *cmdName);
 
@@ -50,7 +56,8 @@ static void *worker(void *id);
 static void *distributor(void *par);
 
 /**
- * @brief Merge a bitonic sequence into an ascending or descending sequence 
+ * @brief Merge a bitonic sequence into an ascending or descending sequence
+ *
  * @param arr bitonic sequence
  * @param size size of the sequence
  * @param asc is ascending
@@ -59,6 +66,7 @@ static void bitonicMerge(int* arr, int size, bool asc);
 
 /**
  * @brief Sort a sequence of integers into a bitonic sequence
+ *
  * @param arr bitonic sequence
  * @param size size of the sequence
  * @param asc is ascending
@@ -67,6 +75,7 @@ static void bitonicSort(int* arr, int size, bool asc);
 
 /**
  * @brief Swap elements in array in ascending or descending order
+ *
  * @param arr array of elements to swap
  * @param i index of first element
  * @param j index of second element
@@ -77,12 +86,22 @@ static void swap(int* arr, int i, int j, bool asc);
 /** @brief Execution time measurement */
 static double get_delta_time(void);
 
-int main (int argc, char *argv[]) {
+/**
+ * @brief Main thread.
+ *
+ * Its role is storing the name of the file to process, and launching the distributor and worker threads.
+ * Afterwards, it waits for their termination, and validates if the sort was correctly performed.
+ * 
+ * @param argc number of words of the command line
+ * @param argv list of words of the command line
+ * @return status of operation
+ */
+int main(int argc, char *argv[]) {
     int opt;
     extern char* optarg;
     extern int optind;
 
-    while((opt = getopt(argc, argv, "t:h")) != -1) {
+    while ((opt = getopt(argc, argv, "t:h")) != -1) {
         switch (opt) {
             case 't': /* number of threads to be created */
                 if (atoi(optarg) <= 0){ 
@@ -136,11 +155,12 @@ int main (int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    for (i = 0; i < n_threads; i++)
+    for (i = 0; i < n_threads; i++) {
         worker_id[i] = i;
+    }
     distributor_id = i;
 
-    (void) get_delta_time ();
+    (void) get_delta_time();
 
     // Launch Workers and Distributor
     for (i = 0; i < n_threads; i++) {
@@ -160,7 +180,6 @@ int main (int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         }
     }
-
     if (pthread_join(t_distributor_id, (void *)&pStatus) != 0) {
         fprintf(stderr, "error on waiting for thread distributor");
         exit(EXIT_FAILURE);
@@ -183,7 +202,7 @@ int main (int argc, char *argv[]) {
 static void *distributor(void *par) {
     unsigned int id = *((unsigned int *) par);
 
-    readIntegerFile();
+    readIntegerFile(id);
 
     struct SorterWork* work_to_distribute = malloc(n_threads * sizeof(struct SorterWork));
 
@@ -196,17 +215,17 @@ static void *distributor(void *par) {
         for (int work_id = 0; work_id < n_workers; work_id++) {
             work_to_distribute[work_id].should_work = work_id < stage;   // distribute work to half of the workers, and tell the other half to stop working (unless it's the first stage)          
             if (work_to_distribute[work_id].should_work) {                
-                defineIntegerSubsequence(stage, work_id, &work_to_distribute[work_id].array, &work_to_distribute[work_id].array_size);
+                defineIntegerSubsequence(id, stage, work_id, &work_to_distribute[work_id].array, &work_to_distribute[work_id].array_size);
                 work_to_distribute[work_id].ascending = (work_id % 2) == 0;   // the sorts alternate between ascending and descending
                 work_to_distribute[work_id].skip_sort = stage != n_threads;   // the bitonic sort (including merging) is only done in the first stage, afterwards it's merely merging
             }
         }
 
-        distributeWork(work_to_distribute, n_workers);
+        distributeWork(id, work_to_distribute, n_workers);
     }   
 
     work_to_distribute[0].should_work = false;
-    distributeWork(work_to_distribute, 1);
+    distributeWork(id, work_to_distribute, 1);
 
     free(work_to_distribute);
 
@@ -221,15 +240,18 @@ static void *worker(void *par) {
     while (true) {
         fetchWork(id, &work);
         
-        if (!work.should_work)
+        if (!work.should_work) {
             break;
+        }
 
-        if (work.skip_sort)
+        if (work.skip_sort) {
             bitonicMerge(work.array, work.array_size, work.ascending); 
-        else
+        }
+        else {
             bitonicSort(work.array, work.array_size, work.ascending);
+        }
         
-        reportWork();
+        reportWork(id);
     }
     
     status_threads[id] = EXIT_SUCCESS;
@@ -282,10 +304,11 @@ static double get_delta_time(void) {
     static struct timespec t0, t1;
 
     t0 = t1;
-    if(clock_gettime (CLOCK_MONOTONIC, &t1) != 0) {
-        perror ("clock_gettime");
+    if(clock_gettime(CLOCK_MONOTONIC, &t1) != 0) {
+        perror("clock_gettime");
         exit(EXIT_FAILURE);
     }
+
     return (double) (t1.tv_sec - t0.tv_sec) + 1.0e-9 * (double) (t1.tv_nsec - t0.tv_nsec);
 }
 
