@@ -337,8 +337,9 @@ bool validateSort() {
             break;
         }
 
-    if (!correct_sort)
+    if (correct_sort) {
         printf("Everything is OK!\n");
+    }
     
     if (pthread_mutex_unlock(&access_cr)) {
         perror("error on exiting monitor(CF)");
