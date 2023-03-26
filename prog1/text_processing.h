@@ -1,7 +1,7 @@
 /**
  * @file text_processing.h (interface file)
  * 
- * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
+ * @author Dinis Lei (dinislei@ua.pt), Martinho Tavares (martinho.tavares@ua.pt)
  * 
  * @brief Main file for Program 1.
  * 

@@ -1,7 +1,7 @@
 /**
  * @file chunk_reader.c (implementation file)
  * 
- * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
+ * @author Dinis Lei (dinislei@ua.pt), Martinho Tavares (martinho.tavares@ua.pt)
  * 
  * @brief Monitor for mutual exclusion in Program 1.
  * 

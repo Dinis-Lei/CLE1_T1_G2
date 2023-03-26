@@ -1,7 +1,7 @@
 /**
  * @file utf8_parser.c (implementation file)
  * 
- * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
+ * @author Dinis Lei (dinislei@ua.pt), Martinho Tavares (martinho.tavares@ua.pt)
  * 
  * @brief Helper functions for parsing and analyzing an UTF-8 byte stream.
  * 

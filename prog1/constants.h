@@ -1,7 +1,7 @@
 /**
  * @file constants.h
  * 
- * @author Dinis Lei (you@domain.com), Martinho Tavares (martinho.tavares@ua.pt)
+ * @author Dinis Lei (dinislei@ua.pt), Martinho Tavares (martinho.tavares@ua.pt)
  * 
  * @brief Constants used in the word counting program (Program 1).
  * 
