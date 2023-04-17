@@ -1,0 +1,10 @@
+Elapsed time = 1.590314 s
+Elapsed time = 1.640001 s
+Elapsed time = 1.543108 s
+Elapsed time = 1.581382 s
+Elapsed time = 1.572407 s
+Elapsed time = 1.559520 s
+Elapsed time = 1.577646 s
+Elapsed time = 1.580611 s
+Elapsed time = 1.597884 s
+Elapsed time = 1.603237 s
