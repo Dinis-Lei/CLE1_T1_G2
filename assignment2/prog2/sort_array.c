@@ -23,7 +23,6 @@
 #include <time.h>
 #include <mpi.h>
 
-#include "sort_control.h"
 #include "constants.h"
 #include "sort_array.h"
 
@@ -45,6 +44,15 @@ static void printUsage (char *cmdName);
  * @param numbers_size address to which the amount of numbers read from the file will be stored
  */
 void readIntegerFile(char* filename, int** numbers, int* numbers_size);
+
+/**
+ * @brief Returns the largest power of 2 lesser than x
+ * @param x 
+ * @return 
+ */
+int previousPower2(int x);
+
+bool validateSort(int* numbers, int numbers_size);
 
 /**
  * @brief Merge a bitonic sequence into an ascending or descending sequence
@@ -111,28 +119,92 @@ int main(int argc, char *argv[]) {
     int rank, size;
     int numbers_size;
     int* numbers;
-
+    int* numbers_partial;
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm comm = MPI_COMM_WORLD;
+
+    printf("%d - Init\n", rank);
 
     if (rank == 0) {
         (void) get_delta_time();
         char* filename = argv[optind];
         readIntegerFile(filename, &numbers, &numbers_size);
+        // printf("%d - Numbers Size: %d\n", rank, numbers_size);
+        // for (int i = 0; i < numbers_size; i++) {
+        //     printf("%d ", numbers[i]);
+        // }
+        // printf("\n");
     }
-    MPI_Bcast(&numbers_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&numbers_size, 1, MPI_INT, 0, comm);
 
-    
-    if (rank >= n_workers_at_iteration)
+    numbers_partial = malloc(numbers_size * sizeof(int));
+
+    int tot_iterations = previousPower2(size);
+
+    for (int iteration = tot_iterations; iteration > 0; iteration >>= 1) {
+        // if (rank == 0) {
+        //     printf("%d - Iteration %d\n", rank, iteration);
+        //     for (int i = 0; i < numbers_size; i++) {
+        //         printf("%d ", numbers[i]);
+        //     }
+        //     printf("\n");
+        // }
+
+        MPI_Comm new_comm;
+        int color = (rank < iteration) ? 0 : 1;
+        MPI_Comm_split(comm, color, rank, &new_comm);
+        comm = new_comm;
+
+        if (color == 1)
+            break;
+
+        int chunk_size = numbers_size/iteration;
+        if (rank == 0)
+            printf("Chunk size = %d\n", chunk_size);
+
+        MPI_Scatter(numbers, chunk_size, MPI_INT, numbers_partial, chunk_size, MPI_INT, 0, comm);
+        // printf("%d - Finish Scatter\n", rank);
+
+        // Sort Chunk
+        if (iteration == tot_iterations) 
+            bitonicSort(numbers_partial, chunk_size, rank%2 == 0);
+        else
+            bitonicMerge(numbers_partial, chunk_size, rank%2 == 0);
+
+        // printf("%d - Finish Sort\n", rank);
+        // for (int i = 0; i < chunk_size; i++) {
+        //     printf("%d ", numbers_partial[i]);
+        // }
+        // printf("\n");
+
+        MPI_Gather(numbers_partial, chunk_size, MPI_INT, numbers, chunk_size, MPI_INT, 0, comm);
+        // printf("%d - Finish Gather\n", rank);
+
+    }
+
+    // if (rank == 0) {
+    //     printf("END: ");
+    //     for (int i = 0; i < numbers_size; i++) {
+    //         printf("%d ", numbers[i]);
+    //     }
+    //     printf("\n");
+    // }
 
 
-
-    if (!validateSort())
+    if (rank == 0 && !validateSort(numbers, numbers_size)) {
+        MPI_Finalize();
         exit(EXIT_FAILURE);
+    }
+        
 
     if (rank == 0) 
         printf ("\nElapsed time = %.6f s\n", get_delta_time ());
+
+    printf("Rank %d Finished\n", rank);
+
+    MPI_Finalize();
     exit(EXIT_SUCCESS);
 }
 
@@ -198,41 +270,77 @@ static void printUsage (char *cmdName) {
 
 // TODO: mallocing inside function is a good practice?
 void readIntegerFile(char* filename, int** numbers, int* numbers_size) {
+    printf("READ FILE %s\n", filename);
     FILE* file = fopen(filename, "rb");
     if (file == NULL) {
-        fprintf(stderr, "Error opening file %s\n", filename);
+        fprintf(stdout, "Error opening file %s\n", filename);
+        MPI_Finalize();
         exit(EXIT_FAILURE);
     }
-
-    int res = fread(&numbers_size, sizeof(int), 1, file);
+    int res = fread(numbers_size, sizeof(int), 1, file);
     if (res != 1) {
         if (ferror(file)) {
             fprintf(stderr, "Invalid file format\n");
+            MPI_Finalize();
             exit(EXIT_FAILURE);
         }
         else if (feof(file)) {
             printf("Error: end of file reached\n");
+            MPI_Finalize();
             exit(EXIT_FAILURE);
         }
     }
 
     if (((*numbers_size) != 0) && (((*numbers_size) & ((*numbers_size) - 1)) != 0)) {
         fprintf(stderr, "Invalid file, Array must be a power of 2\n");
+        MPI_Finalize();
         exit(EXIT_FAILURE);
     }
 
     (*numbers) = (int*) malloc((*numbers_size) * sizeof(int));
 
     while (true) {
-        res = fread(*numbers, sizeof(int), numbers_size, file);
+        res = fread(*numbers, sizeof(int), (*numbers_size), file);
         if (feof(file)) {
             break;
         }
         else if (ferror(file)) {
             fprintf(stderr, "Invalid file format\n");
+            MPI_Finalize();
             exit(EXIT_FAILURE);
         }
     }
 
     fclose(file);
+}
+
+int previousPower2(int x) {
+    if (x == 0) {
+        return 0;
+    }
+    x |= (x >> 1);
+    x |= (x >> 2);
+    x |= (x >> 4);
+    x |= (x >> 8);
+    x |= (x >> 16);
+    return x - (x >> 1);
+}
+
+bool validateSort(int* numbers, int numbers_size) {
+    bool correct_sort = true;
+
+    int i;
+    for (i = 0; i < numbers_size - 1; i++)
+        if (numbers[i] > numbers[i+1]) { 
+            printf("Error in position %d between element %d and %d\n",
+            i, numbers[i], numbers[i+1]);
+            correct_sort = false;
+            break;
+        }
+
+    if (correct_sort) {
+        printf("Everything is OK!\n");
+    }
+
+    return correct_sort;
 }
