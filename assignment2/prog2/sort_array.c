@@ -269,6 +269,7 @@ static void printUsage (char *cmdName) {
 }
 
 // TODO: mallocing inside function is a good practice?
+// TODO: if file doesn't exist then all processes except P0 do not finalize
 void readIntegerFile(char* filename, int** numbers, int* numbers_size) {
     printf("READ FILE %s\n", filename);
     FILE* file = fopen(filename, "rb");
