@@ -46,16 +46,16 @@ static void printUsage (char *cmdName);
 void readIntegerFile(char* filename, int** numbers, int* numbers_size);
 
 /**
- * @brief Returns the largest power of 2 lesser than x
+ * @brief Returns the largest power of 2 lesser than or equal to x. Only works if x is a 32-bit number.
  * @param x 
  * @return 
  */
-int previousPower2(int x);
+uint32_t previousPower2(uint32_t x);
 
 bool validateSort(int* numbers, int numbers_size);
 
 /**
- * @brief Merge a bitonic sequence into an ascending or descending sequence
+ * @brief Merge a bitonic sequence into an ascending or descending sequence.
  *
  * @param arr bitonic sequence
  * @param size size of the sequence
@@ -64,7 +64,7 @@ bool validateSort(int* numbers, int numbers_size);
 static void bitonicMerge(int* arr, int size, bool asc);
 
 /**
- * @brief Sort a sequence of integers into a bitonic sequence
+ * @brief Sort a sequence of integers into a bitonic sequence.
  *
  * @param arr bitonic sequence
  * @param size size of the sequence
@@ -73,7 +73,7 @@ static void bitonicMerge(int* arr, int size, bool asc);
 static void bitonicSort(int* arr, int size, bool asc);
 
 /**
- * @brief Swap elements in array in ascending or descending order
+ * @brief Swap elements in array in ascending or descending order.
  *
  * @param arr array of elements to swap
  * @param i index of first element
@@ -143,6 +143,7 @@ int main(int argc, char *argv[]) {
 
     int tot_iterations = previousPower2(size);
 
+    int nits = 0;
     for (int iteration = tot_iterations; iteration > 0; iteration >>= 1) {
         // if (rank == 0) {
         //     printf("%d - Iteration %d\n", rank, iteration);
@@ -168,7 +169,7 @@ int main(int argc, char *argv[]) {
         // printf("%d - Finish Scatter\n", rank);
 
         // Sort Chunk
-        if (iteration == tot_iterations) 
+        if (iteration == tot_iterations)
             bitonicSort(numbers_partial, chunk_size, rank%2 == 0);
         else
             bitonicMerge(numbers_partial, chunk_size, rank%2 == 0);
@@ -182,6 +183,7 @@ int main(int argc, char *argv[]) {
         MPI_Gather(numbers_partial, chunk_size, MPI_INT, numbers, chunk_size, MPI_INT, 0, comm);
         // printf("%d - Finish Gather\n", rank);
 
+        nits++;
     }
 
     // if (rank == 0) {
@@ -315,7 +317,7 @@ void readIntegerFile(char* filename, int** numbers, int* numbers_size) {
     fclose(file);
 }
 
-int previousPower2(int x) {
+uint32_t previousPower2(uint32_t x) {
     if (x == 0) {
         return 0;
     }
