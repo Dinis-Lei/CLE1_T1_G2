@@ -42,8 +42,9 @@ static void printUsage (char *cmdName);
  * @param filename name of the file to be read
  * @param numbers address to which the integers will be stored
  * @param numbers_size address to which the amount of numbers read from the file will be stored
+ * @return whether the file was successfully read
  */
-void readIntegerFile(char* filename, int** numbers, int* numbers_size);
+bool readIntegerFile(char* filename, int** numbers, int* numbers_size);
 
 /**
  * @brief Returns the largest power of 2 lesser than or equal to x. Only works if x is a 32-bit number.
@@ -127,16 +128,24 @@ int main(int argc, char *argv[]) {
 
     printf("%d - Init\n", rank);
 
+    bool can_proceed = false;
     if (rank == 0) {
         (void) get_delta_time();
         char* filename = argv[optind];
-        readIntegerFile(filename, &numbers, &numbers_size);
+        can_proceed = readIntegerFile(filename, &numbers, &numbers_size);
         // printf("%d - Numbers Size: %d\n", rank, numbers_size);
         // for (int i = 0; i < numbers_size; i++) {
         //     printf("%d ", numbers[i]);
         // }
         // printf("\n");
     }
+
+    MPI_Bcast(&can_proceed, 1, MPI_C_BOOL, 0, comm);    
+    if (!can_proceed) {
+        MPI_Finalize();
+        exit(EXIT_FAILURE);
+    }
+
     MPI_Bcast(&numbers_size, 1, MPI_INT, 0, comm);
 
     numbers_partial = malloc(numbers_size * sizeof(int));
@@ -270,34 +279,31 @@ static void printUsage (char *cmdName) {
            "  -h      --- print this help\n", cmdName);
 }
 
-// TODO: mallocing inside function is a good practice?
-// TODO: if file doesn't exist then all processes except P0 do not finalize
-void readIntegerFile(char* filename, int** numbers, int* numbers_size) {
+bool readIntegerFile(char* filename, int** numbers, int* numbers_size) {
     printf("READ FILE %s\n", filename);
     FILE* file = fopen(filename, "rb");
     if (file == NULL) {
-        fprintf(stdout, "Error opening file %s\n", filename);
-        MPI_Finalize();
-        exit(EXIT_FAILURE);
+        fprintf(stdout, "Error: could not open file %s\n", filename);
+        return false;
     }
     int res = fread(numbers_size, sizeof(int), 1, file);
     if (res != 1) {
         if (ferror(file)) {
-            fprintf(stderr, "Invalid file format\n");
-            MPI_Finalize();
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Error: invalid file format\n");
+            fclose(file);
+            return false;
         }
         else if (feof(file)) {
-            printf("Error: end of file reached\n");
-            MPI_Finalize();
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Error: end of file reached\n");
+            fclose(file);
+            return false;
         }
     }
 
     if (((*numbers_size) != 0) && (((*numbers_size) & ((*numbers_size) - 1)) != 0)) {
-        fprintf(stderr, "Invalid file, Array must be a power of 2\n");
-        MPI_Finalize();
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Error: invalid file, array size must be a power of 2\n");
+        fclose(file);
+        return false;
     }
 
     (*numbers) = (int*) malloc((*numbers_size) * sizeof(int));
@@ -308,13 +314,14 @@ void readIntegerFile(char* filename, int** numbers, int* numbers_size) {
             break;
         }
         else if (ferror(file)) {
-            fprintf(stderr, "Invalid file format\n");
-            MPI_Finalize();
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Error: invalid file format\n");
+            fclose(file);
+            return false;
         }
     }
 
     fclose(file);
+    return true;
 }
 
 uint32_t previousPower2(uint32_t x) {
