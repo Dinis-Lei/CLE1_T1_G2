@@ -18,7 +18,6 @@
 #include <libgen.h>
 #include <unistd.h>
 #include <stdbool.h>
-#include <pthread.h>
 #include <math.h>
 #include <time.h>
 #include <mpi.h>
