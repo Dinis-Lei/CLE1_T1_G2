@@ -453,11 +453,13 @@ static void processComandLine(char** argv, int argc, int rank) {
                 if (rank == 0) {
                     printUsage(basename(argv[0]));
                 }
+                MPI_Finalize();
                 exit(EXIT_SUCCESS);
             case '?': /* invalid option */
                 if (rank == 0) {
                     fprintf(stderr, "%s: invalid option\n", basename(argv[0]));
                 }
+                MPI_Finalize();
                 exit(EXIT_FAILURE);
         }
     }
@@ -466,6 +468,7 @@ static void processComandLine(char** argv, int argc, int rank) {
         if (rank == 0) {
             fprintf(stderr, "Input some files to process!\n");
         }
+        MPI_Finalize();
         exit(EXIT_FAILURE);
     }
 }
