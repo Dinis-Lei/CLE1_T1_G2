@@ -138,7 +138,10 @@ int main(int argc, char *argv[]) {
 
     MPI_Bcast(&numbers_size, 1, MPI_INT, 0, comm);
 
-    numbers_partial = malloc(numbers_size * sizeof(int));
+    if ((numbers_partial = malloc(numbers_size * sizeof(int))) == NULL) {
+        fprintf(stderr, "error on allocating space to numbers array\n");
+        exit(EXIT_FAILURE);
+    }
 
     int tot_iterations = previousPower2(size);
 
@@ -167,15 +170,20 @@ int main(int argc, char *argv[]) {
     }
 
     if (rank == 0 && !validateSort(numbers, numbers_size)) {
+        free(numbers_partial);
+        free(numbers);
         MPI_Finalize();
         exit(EXIT_FAILURE);
     }
         
 
-    if (rank == 0) 
-        printf ("\nElapsed time = %.6f s\n", get_delta_time ());
+    if (rank == 0) {
+        printf("\nElapsed time = %.6f s\n", get_delta_time ());
+        free(numbers);
+    }
 
     // printf("Rank %d Finished\n", rank);
+    free(numbers_partial);
     MPI_Finalize();
     exit(EXIT_SUCCESS);
 }
