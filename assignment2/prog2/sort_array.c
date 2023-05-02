@@ -35,6 +35,15 @@
  */
 static void printUsage (char *cmdName);
 
+/**
+ * @brief Process the command line arguments, printing usage if needed.
+ * 
+ * @param argv array of argument values
+ * @param argc number of arguments
+ * @param rank rank of the calling process
+ */
+static void processComandLine(char** argv, int argc, int rank);
+
 /** 
  * @brief Read the contents of a file containing integers into memory.
  * 
@@ -96,34 +105,21 @@ static double get_delta_time(void);
  * @return status of operation
  */
 int main(int argc, char *argv[]) {
-    int opt;
-    extern char* optarg;
-    extern int optind;
-
-    while ((opt = getopt(argc, argv, "h")) != -1) {
-        switch (opt) {
-            case 'h':
-                printUsage(basename(argv[0]));
-                return EXIT_SUCCESS;
-            case '?': /* invalid option */
-                fprintf (stderr, "%s: invalid option\n", basename(argv[0]));
-                exit(EXIT_FAILURE);
-        }
-    }
-
-    if (argc < 2) {
-        fprintf(stderr, "Input some files to process!\n");
-        exit(EXIT_FAILURE);
-    }
-
+    
     int rank, size;
     int numbers_size;
     int* numbers;
     int* numbers_partial;
+
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm comm = MPI_COMM_WORLD;
+
+    processComandLine(argv, argc, rank);
+
+    // TODO: set error handler explicitly?
+    MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_ARE_FATAL);
 
     printf("%d - Init\n", rank);
 
@@ -318,4 +314,35 @@ bool validateSort(int* numbers, int numbers_size) {
     }
 
     return correct_sort;
+}
+
+static void processComandLine(char** argv, int argc, int rank) {
+    int opt;
+    extern char* optarg;
+    extern int optind;
+
+    while ((opt = getopt(argc, argv, "t:h")) != -1) {
+        switch (opt) {
+            case 'h':
+                if (rank == 0) {
+                    printUsage(basename(argv[0]));
+                }
+                MPI_Finalize();
+                exit(EXIT_SUCCESS);
+            case '?': /* invalid option */
+                if (rank == 0) {
+                    fprintf(stderr, "%s: invalid option\n", basename(argv[0]));
+                }
+                MPI_Finalize();
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    if (argc < 2) {
+        if (rank == 0) {
+            fprintf(stderr, "Input some files to process!\n");
+        }
+        MPI_Finalize();
+        exit(EXIT_FAILURE);
+    }
 }
