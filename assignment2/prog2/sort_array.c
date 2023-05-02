@@ -132,11 +132,6 @@ int main(int argc, char *argv[]) {
         (void) get_delta_time();
         char* filename = argv[optind];
         can_proceed = readIntegerFile(filename, &numbers, &numbers_size);
-        // printf("%d - Numbers Size: %d\n", rank, numbers_size);
-        // for (int i = 0; i < numbers_size; i++) {
-        //     printf("%d ", numbers[i]);
-        // }
-        // printf("\n");
     }
 
     MPI_Bcast(&can_proceed, 1, MPI_C_BOOL, 0, comm);    
@@ -151,30 +146,20 @@ int main(int argc, char *argv[]) {
 
     int tot_iterations = previousPower2(size);
 
-    int nits = 0;
     for (int iteration = tot_iterations; iteration > 0; iteration >>= 1) {
-        // if (rank == 0) {
-        //     printf("%d - Iteration %d\n", rank, iteration);
-        //     for (int i = 0; i < numbers_size; i++) {
-        //         printf("%d ", numbers[i]);
-        //     }
-        //     printf("\n");
-        // }
-
         MPI_Comm new_comm;
         int color = (rank < iteration) ? 0 : 1;
         MPI_Comm_split(comm, color, rank, &new_comm);
         comm = new_comm;
 
-        if (color == 1)
+        if (color == 1)                                 // Remove unwated processes 
             break;
 
         int chunk_size = numbers_size/iteration;
-        if (rank == 0)
-            printf("Chunk size = %d\n", chunk_size);
+        // if (rank == 0)
+        //     printf("Chunk size = %d\n", chunk_size);
 
         MPI_Scatter(numbers, chunk_size, MPI_INT, numbers_partial, chunk_size, MPI_INT, 0, comm);
-        // printf("%d - Finish Scatter\n", rank);
 
         // Sort Chunk
         if (iteration == tot_iterations)
@@ -182,26 +167,8 @@ int main(int argc, char *argv[]) {
         else
             bitonicMerge(numbers_partial, chunk_size, rank%2 == 0);
 
-        // printf("%d - Finish Sort\n", rank);
-        // for (int i = 0; i < chunk_size; i++) {
-        //     printf("%d ", numbers_partial[i]);
-        // }
-        // printf("\n");
-
         MPI_Gather(numbers_partial, chunk_size, MPI_INT, numbers, chunk_size, MPI_INT, 0, comm);
-        // printf("%d - Finish Gather\n", rank);
-
-        nits++;
     }
-
-    // if (rank == 0) {
-    //     printf("END: ");
-    //     for (int i = 0; i < numbers_size; i++) {
-    //         printf("%d ", numbers[i]);
-    //     }
-    //     printf("\n");
-    // }
-
 
     if (rank == 0 && !validateSort(numbers, numbers_size)) {
         MPI_Finalize();
@@ -212,8 +179,7 @@ int main(int argc, char *argv[]) {
     if (rank == 0) 
         printf ("\nElapsed time = %.6f s\n", get_delta_time ());
 
-    printf("Rank %d Finished\n", rank);
-
+    // printf("Rank %d Finished\n", rank);
     MPI_Finalize();
     exit(EXIT_SUCCESS);
 }
@@ -279,7 +245,7 @@ static void printUsage (char *cmdName) {
 }
 
 bool readIntegerFile(char* filename, int** numbers, int* numbers_size) {
-    printf("READ FILE %s\n", filename);
+    //printf("READ FILE %s\n", filename);
     FILE* file = fopen(filename, "rb");
     if (file == NULL) {
         fprintf(stdout, "Error: could not open file %s\n", filename);
