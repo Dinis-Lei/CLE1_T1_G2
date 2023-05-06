@@ -219,7 +219,7 @@ int main (int argc, char *argv[]) {
         };
 
         for (int worker_rank = 1; worker_rank < size; worker_rank++) {
-            printf("[%d] Signaled receive from process %d\n", rank, worker_rank);
+            //printf("[%d] Signaled receive from process %d\n", rank, worker_rank);
             MPI_Irecv(&work_request_ranks[worker_rank - 1], 1, MPI_INT, worker_rank, 0, MPI_COMM_WORLD, &work_requests[worker_rank - 1]);
         }
 
@@ -229,10 +229,10 @@ int main (int argc, char *argv[]) {
         int terminated_communications = 0;
         while (terminated_communications < size - 1) {
             // TODO: should status be ignored?
-            printf("[%d] Waiting for any request...\n", rank);
+            //printf("[%d] Waiting for any request...\n", rank);
             MPI_Waitany(size - 1, work_requests, &request_idx, MPI_STATUS_IGNORE);
             request_rank = work_request_ranks[request_idx];
-            printf("[%d] Received request from %d\n", rank, request_rank);
+            //printf("[%d] Received request from %d\n", rank, request_rank);
 
             chunk_file_idx = reading_progress.file_idx; // the value of current_file_idx may change after readChunk(), and so the file_idx sent to the workers could be wrong if the file was switched
             // As soon as the chunk reading fails once, send termination messages to the other processes (messages with chunk_size=0)
@@ -240,7 +240,7 @@ int main (int argc, char *argv[]) {
                 chunk_reading_failed = readChunk(file_names, n_files, &reading_progress, chunk, &chunk_size) != 0;
             }
 
-            printf("[%d] Sending chunk of size %d to %d\n", rank, chunk_size, request_rank);
+            //printf("[%d] Sending chunk of size %d to %d\n", rank, chunk_size, request_rank);
             // This send is blocking, otherwise we could not change the chunk before we are sure the recipient got it (second paragraph of description: https://www.open-mpi.org/doc/v4.0/man3/MPI_Isend.3.php)
             MPI_Send(&chunk_size, 1, MPI_INT, request_rank, 0, MPI_COMM_WORLD);
             if (chunk_size > 0) {
@@ -253,7 +253,7 @@ int main (int argc, char *argv[]) {
                 terminated_communications++;
             }
         }
-        printf("[%d] Terminated everything\n", rank);
+        //printf("[%d] Terminated everything\n", rank);
     }
     else {
         int chunk_size;
@@ -264,16 +264,16 @@ int main (int argc, char *argv[]) {
         while (work_to_do) {
             MPI_Isend(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &sent_request);
 
-            printf("[%d] Sent work request\n", rank);
+            //printf("[%d] Sent work request\n", rank);
             MPI_Recv(&chunk_size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             if (chunk_size == 0) {
-                printf("[%d] Chunk size is 0, so I'll quit\n", rank);
+                //printf("[%d] Chunk size is 0, so I'll quit\n", rank);
                 break;
             }
 
             MPI_Recv(&current_file_idx, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Recv(chunk, chunk_size, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            printf("[%d] Received chunk of size %d from file %d, processing...\n", rank, chunk_size, current_file_idx);
+            //printf("[%d] Received chunk of size %d from file %d, processing...\n", rank, chunk_size, current_file_idx);
             // TODO: error at processText is ignored, do something?
             processText(chunk, chunk_size, counters, current_file_idx);
         }
