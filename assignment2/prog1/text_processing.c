@@ -213,19 +213,32 @@ int main (int argc, char *argv[]) {
         int chunk_file_idx;
         int terminated_communications = 0;
         while (terminated_communications < size - 1) {
+<<<<<<< HEAD
             // TODO: should status be ignored?
             //printf("[%d] Waiting for any request...\n", rank);
             MPI_Waitany(size - 1, work_requests, &request_idx, MPI_STATUS_IGNORE);
             request_rank = work_request_ranks[request_idx];
             //printf("[%d] Received request from %d\n", rank, request_rank);
 
+=======
+>>>>>>> 7bde3824cb727d53cc796b8a2294dbcddbef6130
             chunk_file_idx = reading_progress.file_idx; // the value of current_file_idx may change after readChunk(), and so the file_idx sent to the workers could be wrong if the file was switched
             // As soon as the chunk reading fails once, send termination messages to the other processes (messages with chunk_size=0)
             if (!chunk_reading_failed) {
                 chunk_reading_failed = readChunk(file_names, n_files, &reading_progress, chunk, &chunk_size) != 0;
             }
 
+<<<<<<< HEAD
             //printf("[%d] Sending chunk of size %d to %d\n", rank, chunk_size, request_rank);
+=======
+            printf("[%d] Waiting for any request...\n", rank);
+            MPI_Waitany(size - 1, work_requests, &request_idx, MPI_STATUS_IGNORE);
+            request_rank = work_request_ranks[request_idx];
+            printf("[%d] Received request from %d\n", rank, request_rank);
+
+
+            printf("[%d] Sending chunk of size %d to %d\n", rank, chunk_size, request_rank);
+>>>>>>> 7bde3824cb727d53cc796b8a2294dbcddbef6130
             // This send is blocking, otherwise we could not change the chunk before we are sure the recipient got it (second paragraph of description: https://www.open-mpi.org/doc/v4.0/man3/MPI_Isend.3.php)
             MPI_Send(&chunk_size, 1, MPI_INT, request_rank, 0, MPI_COMM_WORLD);
             if (chunk_size > 0) {
