@@ -6,9 +6,9 @@
  * @brief Main file for Program 2.
  * 
  * Sort an array of integers stored in a file, whose path is provided as a command-line argument.
- * The bitonic sorting algorithm is used, done using MPI.
+ * The bitonic sorting algorithm is used, done using multiprocessing with MPI.
  *
- * @date April 2023
+ * @date May 2023
  * 
  */
 
@@ -56,11 +56,12 @@ bool readIntegerFile(char* filename, int** numbers, int* numbers_size);
 
 /**
  * @brief Returns the largest power of 2 lesser than or equal to x. Only works if x is a 32-bit number.
- * @param x 
- * @return 
+ * @param x the number from which to obtain the previous power of 2
+ * @return the previous power of 2
  */
 uint32_t previousPower2(uint32_t x);
 
+/** @brief Validate the sorting of an array of numbers (ascending order) */
 bool validateSort(int* numbers, int numbers_size);
 
 /**
@@ -95,8 +96,11 @@ static void swap(int* arr, int i, int j, bool asc);
 static double get_delta_time(void);
 
 /**
- * @brief Main Process.
- *
+ * @brief Main.
+ * 
+ * The execution is branched depending on whether the dispatcher/worker process (rank 0)
+ * or the worker processes (rank > 0) are running the function.
+ * Any positive number of processes is allowed.
  * 
  * @param argc number of words of the command line
  * @param argv list of words of the command line
@@ -116,6 +120,7 @@ int main(int argc, char *argv[]) {
 
     processComandLine(argv, argc, rank);
 
+    // Explicitly set the MPI error handler
     MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_ARE_FATAL);
 
 
@@ -135,8 +140,8 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&numbers_size, 1, MPI_INT, 0, comm);
 
     if ((numbers_partial = malloc(numbers_size * sizeof(int))) == NULL) {
-        fprintf(stderr, "error on allocating space to numbers array\n");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "[%d] error on allocating space to numbers array\n", rank);
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
     int tot_iterations = numbers_size > size ? previousPower2(size) : previousPower2(numbers_size);
@@ -151,8 +156,6 @@ int main(int argc, char *argv[]) {
             break;
 
         int chunk_size = numbers_size/iteration;
-        // if (rank == 0)
-        //     printf("Chunk size = %d\n", chunk_size);
 
         MPI_Scatter(numbers, chunk_size, MPI_INT, numbers_partial, chunk_size, MPI_INT, 0, comm);
 
@@ -178,7 +181,6 @@ int main(int argc, char *argv[]) {
         free(numbers);
     }
 
-    // printf("Rank %d Finished\n", rank);
     free(numbers_partial);
     MPI_Finalize();
     exit(EXIT_SUCCESS);
@@ -245,7 +247,6 @@ static void printUsage (char *cmdName) {
 }
 
 bool readIntegerFile(char* filename, int** numbers, int* numbers_size) {
-    //printf("READ FILE %s\n", filename);
     FILE* file = fopen(filename, "rb");
     if (file == NULL) {
         fprintf(stdout, "Error: could not open file %s\n", filename);

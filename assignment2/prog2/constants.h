@@ -5,7 +5,7 @@
  *
  * @brief Constants used in the sorter program (Program 2).
  *
- * @date March 2023
+ * @date May 2023
  */
 
 #ifndef PROG2_CONSTANTS_H
