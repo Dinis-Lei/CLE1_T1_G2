@@ -135,7 +135,9 @@ int main (int argc, char *argv[]) {
     int n_files = argc - optind;
     char** file_names = &argv[optind];
 
-    (void) get_delta_time();
+    if (rank == 0) {
+        (void) get_delta_time();
+    }
 
     bool can_advance = true; // whether this process can advance with no errors. All processes quit if at least one process can't advance
 
@@ -179,27 +181,11 @@ int main (int argc, char *argv[]) {
     }
 
     // Check whether all processes can proceed with the algorithm with no errors
-    bool* can_advance_processes = NULL;
-    if (rank == 0) {
-        if ((can_advance_processes = malloc(size * sizeof(bool))) == NULL) {
-            fprintf(stderr, "[%d] FATAL ERROR on allocating space for the can_advance flags, aborting...\n", rank);
-            // TODO: is this the best approach?
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
+    bool can_all_advance = true;
+    MPI_Reduce(&can_advance, &can_all_advance, 1, MPI_C_BOOL, MPI_LAND, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&can_all_advance, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
 
-        for (int i = 0; i < size; i++) {
-            can_advance_processes[i] = true;
-        }
-    }
-    MPI_Gather(&can_advance, 1, MPI_C_BOOL, can_advance_processes, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
-    if (rank == 0) {
-        for (int i = 0; i < size; i++) {
-            can_advance = can_advance && can_advance_processes[i];
-        }
-    }
-    MPI_Bcast(&can_advance, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
-
-    if (!can_advance) {
+    if (!can_all_advance) {
         if (rank == 0) {
             fprintf(stderr, "error, can't proceed with the text processing due to bad memory allocation, quitting...\n");
         }
@@ -299,7 +285,6 @@ int main (int argc, char *argv[]) {
         free(counters_final);
         free(work_requests);
         free(work_request_ranks);
-        free(can_advance_processes);
     }
 
     MPI_Finalize();
