@@ -7,8 +7,8 @@
  * 
  * Count the overall number of words and number of words containing each
  * possible vowel in a list of files passed as argument.
- * Each file is partitioned into chunks, that are distributed by a dispatcher
- * among workers to perform the word counting in parallel, using multiprocessing.
+ * Each file is partitioned into chunks, that are distributed by a dispatcher among
+ * workers to perform the word counting in parallel, using multiprocessing with MPI.
  * 
  * @date May 2023
  * 
@@ -67,7 +67,11 @@ static void processComandLine(char** argv, int argc, int rank);
 /**
  * @brief Process the recently read chunk, updating the word counts.
  * 
+<<<<<<< HEAD
  * Performed by the worker processes in parallel.
+=======
+ * Performed by the workers in parallel.
+>>>>>>> ac918a323fa170eb76ad3687b738a1033162ca98
  *
  * @param chunk the chunk of text to calculate word counts
  * @param chunk_size number of bytes to be read from the chunk
@@ -79,7 +83,11 @@ static void processText(unsigned char* chunk, int chunk_size, int* counters, int
 /**
  * @brief Read a fixed-size chunk of text from the file being currently read.
  * 
+<<<<<<< HEAD
  * Performed by the dispatcher.
+=======
+ * Performed by the workers.
+>>>>>>> ac918a323fa170eb76ad3687b738a1033162ca98
  * The maximum number of bytes read is defined in the macro MAX_CHUNK_SIZE.
  * Reads the file_pointer in ChunkReadingProgress, and opens files specified in file_names.
  * The actual amount of bytes read varies, since the file is only read until no word or UTF-8 character is cut.
@@ -111,7 +119,7 @@ static void printResults();
 static double get_delta_time(void);
 
 /**
- * @brief Main function.
+ * @brief Main.
  *
  * The execution is branched depending on whether the dispatcher process (rank 0)
  * or the worker processes (rank > 0) are running the function.

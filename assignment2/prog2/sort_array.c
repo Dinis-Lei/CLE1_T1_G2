@@ -6,7 +6,7 @@
  * @brief Main file for Program 2.
  * 
  * Sort an array of integers stored in a file, whose path is provided as a command-line argument.
- * The bitonic sorting algorithm is used, done using multithreading.
+ * The bitonic sorting algorithm is used, done using MPI.
  *
  * @date April 2023
  * 
@@ -94,12 +94,9 @@ static void swap(int* arr, int i, int j, bool asc);
 /** @brief Execution time measurement */
 static double get_delta_time(void);
 
-// TODO: update comments
 /**
- * @brief Main thread.
+ * @brief Main Process.
  *
- * Its role is storing the name of the file to process, and launching the distributor and worker threads.
- * Afterwards, it waits for their termination, and validates if the sort was correctly performed.
  * 
  * @param argc number of words of the command line
  * @param argv list of words of the command line
@@ -119,10 +116,8 @@ int main(int argc, char *argv[]) {
 
     processComandLine(argv, argc, rank);
 
-    // TODO: set error handler explicitly?
     MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_ARE_FATAL);
 
-    printf("%d - Init\n", rank);
 
     bool can_proceed = false;
     if (rank == 0) {
@@ -144,7 +139,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    int tot_iterations = previousPower2(size);
+    int tot_iterations = numbers_size > size ? previousPower2(size) : previousPower2(numbers_size);
 
     for (int iteration = tot_iterations; iteration > 0; iteration >>= 1) {
         MPI_Comm new_comm;
