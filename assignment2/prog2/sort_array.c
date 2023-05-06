@@ -94,6 +94,7 @@ static void swap(int* arr, int i, int j, bool asc);
 /** @brief Execution time measurement */
 static double get_delta_time(void);
 
+// TODO: update comments
 /**
  * @brief Main thread.
  *

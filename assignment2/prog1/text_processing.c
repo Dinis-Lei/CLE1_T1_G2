@@ -29,6 +29,12 @@
 #include "text_processing.h"
 
 
+struct ChunkReadingProgress {
+    FILE* file_ptr;
+    int file_idx;
+    bool file_done;
+};
+
 /**
  *  @brief Print command usage.
  *
@@ -69,22 +75,22 @@ static void processText(unsigned char* chunk, int chunk_size, int* counters, int
  * 
  * A chunk size of 0 is returned whenever there is an error.
  * 
- * @param chunk             address in memory where the chunk should be read to
- * @param current_file_ptr  address of the file pointer of the recently processed file
- * @param current_file_idx  address of the integer holding the index of the recently processed file
- * @param current_file_done address of the boolean indicating whether the recently processed file is done (no more chunks to read)
- * @param erroneous_reading address of the boolean indicating whether there was an error in the call
- * @return the number of bytes actually read from the file
+ * @param file_names        array with the names of the files to process
+ * @param n_files           number of files to process
+ * @param reading_progress  (input/output) current progress of readChunk in file reading
+ * @param chunk             (output) address in memory where the chunk should be read to
+ * @param chunk_size        (output) the number of bytes actually read from the file
+ * @return 0 if successful, an error code otherwise
  */
-int readChunk(unsigned char* chunk, FILE** current_file_ptr, int* current_file_idx, bool* current_file_done, bool* erroneous_reading);
+static int readChunk(char** file_names, int n_files, struct ChunkReadingProgress* reading_progress, unsigned char* chunk, int* chunk_size);
 
 /**
  * @brief Checks if chunk of text is cutting off a word (or byte) and returns the number of bytes to rewind the file 
  * @param chunk array of bytes to be verified
- * @param erroneous_check address of the boolean indicating whether there was an error in the call
- * @return number of bytes to rewind the file 
+ * @param rewind_offset (output) number of bytes to rewind the file 
+ * @return 0 if successful, an error code otherwise
  */
-static int checkCutOff(unsigned char* chunk, bool* erroneous_check);
+static int checkCutOff(unsigned char* chunk, int* rewind_offset);
 
 /**
  * @brief Print the formatted word count results to standard output
@@ -93,13 +99,6 @@ static void printResults();
 
 /** @brief Execution time measurement */
 static double get_delta_time(void);
-
-/** @brief Number of files to be processed */
-static int n_files;
-/** @brief Names of the files to be processed */
-static char** file_names;
-/** @brief Matrix holding the word counts: [words, words with A, words with E, words with I, words with O, words with U, words with Y] */
-static int* counters;
 
 /**
  * @brief Main thread.
@@ -130,16 +129,18 @@ int main (int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    extern int optind;
     processComandLine(argv, argc, rank);
-    n_files = argc - optind;
-
-    file_names = &argv[optind];
+    
+    int n_files = argc - optind;
+    char** file_names = &argv[optind];
 
     (void) get_delta_time();
 
-    bool can_advance = true; // whether this process can advance with no errors. The program quits if at least one process
+    bool can_advance = true; // whether this process can advance with no errors. All processes quit if at least one process can't advance
 
-    counters = malloc((n_files * N_VOWELS) * sizeof(int));
+    /** @brief Matrix holding the word counts for each file, with columns: [words, words with A, words with E, words with I, words with O, words with U, words with Y] */
+    int* counters = malloc((n_files * N_VOWELS) * sizeof(int));
     if (counters == NULL) {
         fprintf(stderr, "[%d] error on allocating space for the matrix of partial word counters\n", rank);
         can_advance = false;
@@ -150,6 +151,7 @@ int main (int argc, char *argv[]) {
         }
     }
 
+    /** @brief Final counters matrix, only significant for the root process. Result matrix to which all partial counters from the processes will be summed */
     int* counters_final = NULL;
     if (rank == 0) {
         if ((counters_final = malloc((n_files * N_VOWELS) * sizeof(int))) == NULL) {
@@ -163,15 +165,31 @@ int main (int argc, char *argv[]) {
         fprintf(stderr, "[%d] error on allocating space for the text chunk\n", rank);
         can_advance = false;
     }
-    
-    // Check whether all processes can proceed with the algorithm with no errors
-    bool* can_advance_processes;
-    if ((can_advance_processes = malloc(size * sizeof(bool))) == NULL) {
-        fprintf(stderr, "[%d] error on allocating space for the can_advance flags\n", rank);
-        can_advance = false;
+
+    // Allocation of request arrays, only significant at root.
+    // They are allocated sooner here to make use of the can_advance procedure, instead of being checked later while the algorithm is already being executed (which complicates message passing)
+    int* work_request_ranks = NULL;
+    MPI_Request* work_requests = NULL;
+    if (rank == 0) {
+        if ((work_request_ranks = malloc((size - 1) * sizeof(int))) == NULL
+                || (work_requests = malloc((size - 1) * sizeof(MPI_Request))) == NULL) {
+            fprintf(stderr, "[%d] error on allocating space for the request data structures\n", rank);
+            can_advance = false;
+        }
     }
-    for (int i = 0; i < size; i++) {
-        can_advance_processes[i] = true;
+
+    // Check whether all processes can proceed with the algorithm with no errors
+    bool* can_advance_processes = NULL;
+    if (rank == 0) {
+        if ((can_advance_processes = malloc(size * sizeof(bool))) == NULL) {
+            fprintf(stderr, "[%d] FATAL ERROR on allocating space for the can_advance flags, aborting...\n", rank);
+            // TODO: is this the best approach?
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+
+        for (int i = 0; i < size; i++) {
+            can_advance_processes[i] = true;
+        }
     }
     MPI_Gather(&can_advance, 1, MPI_C_BOOL, can_advance_processes, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
     if (rank == 0) {
@@ -183,23 +201,23 @@ int main (int argc, char *argv[]) {
 
     if (!can_advance) {
         if (rank == 0) {
-            fprintf(stderr, "Can't proceed with the text processing, quitting...\n");
+            fprintf(stderr, "error, can't proceed with the text processing due to bad memory allocation, quitting...\n");
         }
         MPI_Finalize();
         exit(EXIT_FAILURE);
     }
 
     // The text processing itself
-    bool erroneous_reading = false; // check whether the chunk reading was successful, if not terminate other processes
+    bool chunk_reading_failed = false; // check whether the chunk reading was successful, if not terminate other processes (only used by root)
     if (rank == 0) {
         int chunk_size;
         
-        FILE* current_file_ptr;
-        int current_file_idx = 0;
-        bool current_file_done = true;
+        struct ChunkReadingProgress reading_progress = {
+            .file_ptr = NULL,
+            .file_idx = 0,
+            .file_done = true
+        };
 
-        int* work_request_ranks = malloc((size - 1) * sizeof(int));
-        MPI_Request* work_requests = malloc((size - 1) * sizeof(MPI_Request));
         for (int worker_rank = 1; worker_rank < size; worker_rank++) {
             printf("[%d] Signaled receive from process %d\n", rank, worker_rank);
             MPI_Irecv(&work_request_ranks[worker_rank - 1], 1, MPI_INT, worker_rank, 0, MPI_COMM_WORLD, &work_requests[worker_rank - 1]);
@@ -216,10 +234,12 @@ int main (int argc, char *argv[]) {
             request_rank = work_request_ranks[request_idx];
             printf("[%d] Received request from %d\n", rank, request_rank);
 
-            chunk_file_idx = current_file_idx; // the value of current_file_idx may change after readChunk(), and so the file_idx sent to the workers could be wrong if the file was switched
-            if (!erroneous_reading) {
-                chunk_size = readChunk(chunk, &current_file_ptr, &current_file_idx, &current_file_done, &erroneous_reading);
+            chunk_file_idx = reading_progress.file_idx; // the value of current_file_idx may change after readChunk(), and so the file_idx sent to the workers could be wrong if the file was switched
+            // As soon as the chunk reading fails once, send termination messages to the other processes (messages with chunk_size=0)
+            if (!chunk_reading_failed) {
+                chunk_reading_failed = readChunk(file_names, n_files, &reading_progress, chunk, &chunk_size) != 0;
             }
+
             printf("[%d] Sending chunk of size %d to %d\n", rank, chunk_size, request_rank);
             // This send is blocking, otherwise we could not change the chunk before we are sure the recipient got it (second paragraph of description: https://www.open-mpi.org/doc/v4.0/man3/MPI_Isend.3.php)
             MPI_Send(&chunk_size, 1, MPI_INT, request_rank, 0, MPI_COMM_WORLD);
@@ -230,7 +250,6 @@ int main (int argc, char *argv[]) {
                 MPI_Irecv(&work_request_ranks[request_idx], 1, MPI_INT, request_rank, 0, MPI_COMM_WORLD, &work_requests[request_idx]);
             }
             else {
-                // TODO: at this point we could send every process a chunk size of 0 and be done with the cycle at once
                 terminated_communications++;
             }
         }
@@ -255,26 +274,36 @@ int main (int argc, char *argv[]) {
             MPI_Recv(&current_file_idx, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Recv(chunk, chunk_size, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             printf("[%d] Received chunk of size %d from file %d, processing...\n", rank, chunk_size, current_file_idx);
+            // TODO: error at processText is ignored, do something?
             processText(chunk, chunk_size, counters, current_file_idx);
         }
     }
 
     MPI_Reduce(counters, counters_final, n_files * N_VOWELS, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
+    int return_status = EXIT_SUCCESS;
     if (rank == 0) {
-        if (erroneous_reading) {
+        if (chunk_reading_failed) {
             fprintf(stderr, "error, could not properly read the source files\n");
-            MPI_Finalize();
-            exit(EXIT_FAILURE);
+            return_status = EXIT_FAILURE;
         }
         else {
-            printResults(counters_final);
+            printResults(counters_final, file_names, n_files);
             printf("\nElapsed time = %.6f s\n", get_delta_time());
         }
     }
 
+    free(counters);
+    free(chunk);
+    if (rank == 0) {
+        free(counters_final);
+        free(work_requests);
+        free(work_request_ranks);
+        free(can_advance_processes);
+    }
+
     MPI_Finalize();
-    exit(EXIT_SUCCESS);
+    exit(return_status);
 }
 
 static void processText(unsigned char* chunk, int chunk_size, int* counters, int current_file_idx) {
@@ -327,59 +356,56 @@ static void processText(unsigned char* chunk, int chunk_size, int* counters, int
     
 }
 
-// TODO: encapsulate current_file_* attributes into a struct?
-int readChunk(unsigned char* chunk, FILE** current_file_ptr, int* current_file_idx, bool* current_file_done, bool* erroneous_reading) {    
-    int chunk_size = 0;
+int readChunk(char** file_names, int n_files, struct ChunkReadingProgress* reading_progress, unsigned char* chunk, int* chunk_size) {    
+    *chunk_size = 0;
     bool no_more_work = false;
     
     // Check if file has ended, open a new file if there are files to be processed
-    if (*current_file_done) {
-        if (*current_file_idx == n_files) {
+    if (reading_progress->file_done) {
+        if (reading_progress->file_idx == n_files) {
             no_more_work = true;
         }
         else {
-            *current_file_ptr = fopen(file_names[*current_file_idx], "r");
-            if (*current_file_ptr == NULL) {
-                fprintf(stderr, "error opening file %s\n", file_names[*current_file_idx]);
-                *erroneous_reading = true;
-                return 0;
+            reading_progress->file_ptr = fopen(file_names[reading_progress->file_idx], "r");
+            if (reading_progress->file_ptr == NULL) {
+                fprintf(stderr, "error opening file %s\n", file_names[reading_progress->file_idx]);
+                return 1;
             }
-            *current_file_done = false;
+            reading_progress->file_done = false;
         }
     }
 
     if (!no_more_work) {
-        chunk_size = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, *current_file_ptr);    
-        if (feof(*current_file_ptr)) {
-            (*current_file_idx)++;
-            fclose(*current_file_ptr);
-            *current_file_done = true;
+        *chunk_size = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, reading_progress->file_ptr);    
+        if (feof(reading_progress->file_ptr)) {
+            (reading_progress->file_idx)++;
+            fclose(reading_progress->file_ptr);
+            reading_progress->file_done = true;
         }
-        else if (ferror(*current_file_ptr)) {
-            fprintf(stderr, "invalid file format\n");
-            *erroneous_reading = true;
-            return 0;
+        else if (ferror(reading_progress->file_ptr)) {
+            fprintf(stderr, "error, invalid file format\n");
+            return 1;
         }
         else {
-            bool erroneous_check = false;
-            int offset = checkCutOff(chunk, &erroneous_check);
-            if (erroneous_check) {
-                *erroneous_reading = true;
-                return 0;
+            int offset;
+            if (checkCutOff(chunk, &offset) != 0) {
+                return 1;
             }
-            fseek(*current_file_ptr, -offset, SEEK_CUR);
-            chunk_size -= offset;
+            fseek(reading_progress->file_ptr, -offset, SEEK_CUR);
+            *chunk_size -= offset;
         }
     }
 
-    return chunk_size;
+    return 0;
 }
 
-static int checkCutOff(unsigned char* chunk, bool* erroneous_check) {
+static int checkCutOff(unsigned char* chunk, int* rewind_offset) {
     int chunk_ptr = MAX_CHUNK_SIZE*1024 - 1;
     int code_size = 0;
     unsigned char symbol[4] = {0,0,0,0};
-    *erroneous_check = false;
+    
+    *rewind_offset = 0;
+
     while (true) {
         
         readUTF8Character(&chunk[chunk_ptr], symbol, &code_size);
@@ -390,8 +416,7 @@ static int checkCutOff(unsigned char* chunk, bool* erroneous_check) {
         }
         else if (code_size == 0) {
             perror("error on parsing file chunk\n");
-            *erroneous_check = true;
-            return 0;
+            return 1;
         }
 
         // Not enough bytes to form a complete code
@@ -402,7 +427,8 @@ static int checkCutOff(unsigned char* chunk, bool* erroneous_check) {
 
         // Check if its not alpha-numeric
         if (!isalphanum(symbol) && !isapostrofe(symbol)) {
-            return MAX_CHUNK_SIZE*1024 - chunk_ptr;
+            *rewind_offset = MAX_CHUNK_SIZE*1024 - chunk_ptr;
+            return 0;
         }
 
         chunk_ptr--;
@@ -411,7 +437,7 @@ static int checkCutOff(unsigned char* chunk, bool* erroneous_check) {
     return 0;
 }
 
-void printResults(int* counters_final) {
+void printResults(int* counters_final, char** file_names, int n_files) {
     for (int i = 0; i < n_files; i++) {
         printf("File name: %s\n", file_names[i]);
         printf("Total number of words = %d\n", counters_final[i * N_VOWELS]);
