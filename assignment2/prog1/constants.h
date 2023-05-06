@@ -5,7 +5,7 @@
  * 
  * @brief Constants used in the word counting program (Program 1).
  * 
- * @date March 2023
+ * @date April 2023
  * 
  */
 

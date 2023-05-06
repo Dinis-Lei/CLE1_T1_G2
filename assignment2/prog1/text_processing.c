@@ -8,7 +8,7 @@
  * Count the overall number of words and number of words containing each
  * possible vowel in a list of files passed as argument.
  * Each file is partitioned into chunks, that are distributed among workers
- * to perform the word counting in parallel, using multithreading.
+ * to perform the word counting in parallel, using MPI.
  * 
  * @date April 2023
  * 
@@ -56,7 +56,7 @@ static void processComandLine(char** argv, int argc, int rank);
 /**
  * @brief Process the recently read chunk, updating the word counts.
  * 
- * Performed by the worker threads in parallel.
+ * Performed by the workers in parallel.
  *
  * @param chunk the chunk of text to calculate word counts
  * @param chunk_size number of bytes to be read from the chunk
@@ -68,7 +68,7 @@ static void processText(unsigned char* chunk, int chunk_size, int* counters, int
 /**
  * @brief Read a fixed-size chunk of text from the file being currently read.
  * 
- * Performed by the worker threads.
+ * Performed by the workers.
  * The maximum number of bytes read is defined in the macro MAX_CHUNK_SIZE.
  * Reads the file_pointer in shared memory, and so should have exclusive access.
  * The actual amount of bytes read varies, since the file is only read until no word or UTF-8 character is cut.
@@ -101,7 +101,7 @@ static void printResults();
 static double get_delta_time(void);
 
 /**
- * @brief Main thread.
+ * @brief Main.
  *
  * Its role is storing the name of the files to process, and then launching the workers that will count words on them.
  * Afterwards, it waits for their termination, and prints the counting results in the end.
@@ -118,7 +118,6 @@ int main (int argc, char *argv[]) {
     MPI_Comm_rank (MPI_COMM_WORLD, &rank);
     MPI_Comm_size (MPI_COMM_WORLD, &size);
 
-    // TODO: set error handler explicitly?
     MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_ARE_FATAL);
 
     if (size < 2) {
@@ -213,24 +212,12 @@ int main (int argc, char *argv[]) {
         int chunk_file_idx;
         int terminated_communications = 0;
         while (terminated_communications < size - 1) {
-<<<<<<< HEAD
-            // TODO: should status be ignored?
-            //printf("[%d] Waiting for any request...\n", rank);
-            MPI_Waitany(size - 1, work_requests, &request_idx, MPI_STATUS_IGNORE);
-            request_rank = work_request_ranks[request_idx];
-            //printf("[%d] Received request from %d\n", rank, request_rank);
-
-=======
->>>>>>> 7bde3824cb727d53cc796b8a2294dbcddbef6130
             chunk_file_idx = reading_progress.file_idx; // the value of current_file_idx may change after readChunk(), and so the file_idx sent to the workers could be wrong if the file was switched
             // As soon as the chunk reading fails once, send termination messages to the other processes (messages with chunk_size=0)
             if (!chunk_reading_failed) {
                 chunk_reading_failed = readChunk(file_names, n_files, &reading_progress, chunk, &chunk_size) != 0;
             }
 
-<<<<<<< HEAD
-            //printf("[%d] Sending chunk of size %d to %d\n", rank, chunk_size, request_rank);
-=======
             printf("[%d] Waiting for any request...\n", rank);
             MPI_Waitany(size - 1, work_requests, &request_idx, MPI_STATUS_IGNORE);
             request_rank = work_request_ranks[request_idx];
@@ -238,7 +225,6 @@ int main (int argc, char *argv[]) {
 
 
             printf("[%d] Sending chunk of size %d to %d\n", rank, chunk_size, request_rank);
->>>>>>> 7bde3824cb727d53cc796b8a2294dbcddbef6130
             // This send is blocking, otherwise we could not change the chunk before we are sure the recipient got it (second paragraph of description: https://www.open-mpi.org/doc/v4.0/man3/MPI_Isend.3.php)
             MPI_Send(&chunk_size, 1, MPI_INT, request_rank, 0, MPI_COMM_WORLD);
             if (chunk_size > 0) {
