@@ -181,9 +181,8 @@ int main (int argc, char *argv[]) {
     }
 
     // Check whether all processes can proceed with the algorithm with no errors
-    bool can_all_advance = true;
-    MPI_Reduce(&can_advance, &can_all_advance, 1, MPI_C_BOOL, MPI_LAND, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&can_all_advance, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
+    bool can_all_advance;
+    MPI_Allreduce(&can_advance, &can_all_advance, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
 
     if (!can_all_advance) {
         if (rank == 0) {
