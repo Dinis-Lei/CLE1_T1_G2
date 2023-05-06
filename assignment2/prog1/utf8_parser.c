@@ -5,7 +5,7 @@
  * 
  * @brief Helper functions for parsing and analyzing an UTF-8 byte stream.
  * 
- * @date March 2023
+ * @date May 2023
  * 
  */
 

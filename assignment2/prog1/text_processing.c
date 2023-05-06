@@ -7,10 +7,10 @@
  * 
  * Count the overall number of words and number of words containing each
  * possible vowel in a list of files passed as argument.
- * Each file is partitioned into chunks, that are distributed among workers
- * to perform the word counting in parallel, using multithreading.
+ * Each file is partitioned into chunks, that are distributed by a dispatcher
+ * among workers to perform the word counting in parallel, using multiprocessing.
  * 
- * @date April 2023
+ * @date May 2023
  * 
  */
 
@@ -29,6 +29,17 @@
 #include "text_processing.h"
 
 
+/**
+ * @brief Structure holding the current progress when reading chunks from a text file with readChunk().
+ * 
+ * The progress contains the index of the file currently being read, with respect to an external array
+ * holding file names. If the index is greater than or equal to that array's size, then the chunk reading
+ * is finished.
+ * 
+ * @param file_ptr pointer to the file currently being read
+ * @param file_idx index of the current file being read in an array holding file names
+ * @param file_done whether the previous file has already been read, and thus the file at file_idx should now be read
+ */
 struct ChunkReadingProgress {
     FILE* file_ptr;
     int file_idx;
@@ -56,7 +67,7 @@ static void processComandLine(char** argv, int argc, int rank);
 /**
  * @brief Process the recently read chunk, updating the word counts.
  * 
- * Performed by the worker threads in parallel.
+ * Performed by the worker processes in parallel.
  *
  * @param chunk the chunk of text to calculate word counts
  * @param chunk_size number of bytes to be read from the chunk
@@ -68,9 +79,9 @@ static void processText(unsigned char* chunk, int chunk_size, int* counters, int
 /**
  * @brief Read a fixed-size chunk of text from the file being currently read.
  * 
- * Performed by the worker threads.
+ * Performed by the dispatcher.
  * The maximum number of bytes read is defined in the macro MAX_CHUNK_SIZE.
- * Reads the file_pointer in shared memory, and so should have exclusive access.
+ * Reads the file_pointer in ChunkReadingProgress, and opens files specified in file_names.
  * The actual amount of bytes read varies, since the file is only read until no word or UTF-8 character is cut.
  * 
  * A chunk size of 0 is returned whenever there is an error.
@@ -78,33 +89,33 @@ static void processText(unsigned char* chunk, int chunk_size, int* counters, int
  * @param file_names        array with the names of the files to process
  * @param n_files           number of files to process
  * @param reading_progress  (input/output) current progress of readChunk in file reading
- * @param chunk             (output) address in memory where the chunk should be read to
+ * @param chunk             (output) chunk of text that will be read
  * @param chunk_size        (output) the number of bytes actually read from the file
- * @return 0 if successful, an error code otherwise
+ * @return 0 if successful, 1 otherwise
  */
 static int readChunk(char** file_names, int n_files, struct ChunkReadingProgress* reading_progress, unsigned char* chunk, int* chunk_size);
 
 /**
- * @brief Checks if chunk of text is cutting off a word (or byte) and returns the number of bytes to rewind the file 
- * @param chunk array of bytes to be verified
+ * @brief Check if chunk of text is cutting off a word (or byte) and return the number of bytes to rewind the file.
+ * 
+ * @param chunk chunk of text to be verified
  * @param rewind_offset (output) number of bytes to rewind the file 
- * @return 0 if successful, an error code otherwise
+ * @return 0 if successful, 1 otherwise
  */
 static int checkCutOff(unsigned char* chunk, int* rewind_offset);
 
-/**
- * @brief Print the formatted word count results to standard output
- */
+/** @brief Print the formatted word count results to standard output */
 static void printResults();
 
 /** @brief Execution time measurement */
 static double get_delta_time(void);
 
 /**
- * @brief Main thread.
+ * @brief Main function.
  *
- * Its role is storing the name of the files to process, and then launching the workers that will count words on them.
- * Afterwards, it waits for their termination, and prints the counting results in the end.
+ * The execution is branched depending on whether the dispatcher process (rank 0)
+ * or the worker processes (rank > 0) are running the function.
+ * At least 2 processes are required (1 dispatcher and 1 or more workers).
  *
  * @param argc number of words of the command line
  * @param argv list of words of the command line
@@ -118,7 +129,7 @@ int main (int argc, char *argv[]) {
     MPI_Comm_rank (MPI_COMM_WORLD, &rank);
     MPI_Comm_size (MPI_COMM_WORLD, &size);
 
-    // TODO: set error handler explicitly?
+    // Explicitly set the MPI error handler
     MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_ARE_FATAL);
 
     if (size < 2) {
@@ -203,8 +214,8 @@ int main (int argc, char *argv[]) {
             .file_done = true
         };
 
+        // Signal a non-blocking receive for every worker, to wait for requests in the future
         for (int worker_rank = 1; worker_rank < size; worker_rank++) {
-            printf("[%d] Signaled receive from process %d\n", rank, worker_rank);
             MPI_Irecv(&work_request_ranks[worker_rank - 1], 1, MPI_INT, worker_rank, 0, MPI_COMM_WORLD, &work_requests[worker_rank - 1]);
         }
 
@@ -219,48 +230,42 @@ int main (int argc, char *argv[]) {
                 chunk_reading_failed = readChunk(file_names, n_files, &reading_progress, chunk, &chunk_size) != 0;
             }
 
-            printf("[%d] Waiting for any request...\n", rank);
+            // Wait for any of the non-blocking requests by workers
             MPI_Waitany(size - 1, work_requests, &request_idx, MPI_STATUS_IGNORE);
             request_rank = work_request_ranks[request_idx];
-            printf("[%d] Received request from %d\n", rank, request_rank);
 
-
-            printf("[%d] Sending chunk of size %d to %d\n", rank, chunk_size, request_rank);
-            // This send is blocking, otherwise we could not change the chunk before we are sure the recipient got it (second paragraph of description: https://www.open-mpi.org/doc/v4.0/man3/MPI_Isend.3.php)
+            // This sends are blocking, otherwise we could not change the chunk before we are sure the recipient got it
             MPI_Send(&chunk_size, 1, MPI_INT, request_rank, 0, MPI_COMM_WORLD);
             if (chunk_size > 0) {
                 MPI_Send(&chunk_file_idx, 1, MPI_INT, request_rank, 0, MPI_COMM_WORLD);
                 MPI_Send(chunk, chunk_size, MPI_UNSIGNED_CHAR, request_rank, 0, MPI_COMM_WORLD);
                 
+                // Refresh the wait for the next request from this worker
                 MPI_Irecv(&work_request_ranks[request_idx], 1, MPI_INT, request_rank, 0, MPI_COMM_WORLD, &work_requests[request_idx]);
             }
             else {
                 terminated_communications++;
             }
         }
-        printf("[%d] Terminated everything\n", rank);
     }
     else {
         int chunk_size;
         int current_file_idx;
 
-        bool work_to_do = true;
         MPI_Request sent_request;
-        while (work_to_do) {
+        while (true) {
+            // Send a non-blocking request to the dispatcher
             MPI_Isend(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &sent_request);
 
-            printf("[%d] Sent work request\n", rank);
+            // Wait for the response from the dispatcher. If the chunk will be empty, then assume the work is done
             MPI_Recv(&chunk_size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             if (chunk_size == 0) {
-                printf("[%d] Chunk size is 0, so I'll quit\n", rank);
                 break;
             }
 
             MPI_Recv(&current_file_idx, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Recv(chunk, chunk_size, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            printf("[%d] Received chunk of size %d from file %d, processing...\n", rank, chunk_size, current_file_idx);
-            // TODO: error at processText is ignored, do something?
-            processText(chunk, chunk_size, counters, current_file_idx);
+            processText(chunk, chunk_size, counters, current_file_idx); // UTF-8 parsing errors are not considered fatal
         }
     }
 
@@ -362,7 +367,7 @@ int readChunk(char** file_names, int n_files, struct ChunkReadingProgress* readi
     if (!no_more_work) {
         *chunk_size = fread(chunk, sizeof(char), MAX_CHUNK_SIZE*1024, reading_progress->file_ptr);    
         if (feof(reading_progress->file_ptr)) {
-            (reading_progress->file_idx)++;
+            reading_progress->file_idx++;
             fclose(reading_progress->file_ptr);
             reading_progress->file_done = true;
         }

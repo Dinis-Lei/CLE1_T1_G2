@@ -7,9 +7,9 @@
  * 
  * Count the overall number of words and number of words containing each
  * possible vowel in a list of files passed as argument.
- * Each file is partitioned into chunks, that are distributed among workers
- * to perform the word counting in parallel, using multithreading.
+ * Each file is partitioned into chunks, that are distributed by a dispatcher
+ * among workers to perform the word counting in parallel, using multiprocessing.
  * 
- * @date March 2023
+ * @date May 2023
  * 
  */
